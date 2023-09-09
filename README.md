@@ -13,7 +13,6 @@ jonathanmarkel@gmail.com<br />
 
 This work was supported by NASA FINESST Award 80NSSC23K0272.
 
-![Tree Plot](data/atl03_3_tree.png)
-
-
 ![Bytes Plot](data/atl03_3_bytes.png)
+
+![Tree Plot](data/atl03_3_tree_labels.png)
