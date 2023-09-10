@@ -1,5 +1,5 @@
 # h5xray
-Helping Python developers understand the structure of an HDF5 file.
+Helping Python developers understand the structure and 'cloud friendliness' of an HDF5 file.
 
 Made with ❤️ and ☕️ by:
 
@@ -13,6 +13,6 @@ jonathanmarkel@gmail.com<br />
 
 This work was supported by NASA FINESST Award 80NSSC23K0272.
 
-![Bytes Plot](data/atl03_3_bytes.png)
+![X-Ray Plot](data/atl03_3_xray.png)
 
-![Tree Plot](data/atl03_3_tree_labels.png)
+![Tree Plot](data/atl03_3_tree.png)
