@@ -1,27 +1,33 @@
 # H5XRay
 Helping Python developers understand the structure and 'cloud-friendliness' of an HDF5 file.
 
-**Installation:**
+## Installation
 Download the h5xray package. It is highly recommended to install the package within a development environment.
 
 ```bash
 pip install git+https://github.com/jonm3d/h5xray.git
 ```
 
-**Basic Usage:**
+### Update Package With Recent Changes
+```bash
+pip install --upgrade git+https://github.com/jonm3d/h5xray.git
+```
+
+## Usage
 
 ```bash
 h5xray /path/to/your/inputfile.h5
 ```
 
-:warning: This will generate a plot for the specified HDF5 file. The output image will be named `inputfile_xray.png`.
+:warning: This will generate __and save__ a plot for the specified HDF5 file. The output image file will be named `inputfile_xray.png`.
 
 ![Default Plot](img/no_options.png)
  
 
-**Relevant Options:**
+### Options
 
-- **Annotations:** Annotate each dataset larger than byte_threshold (default=0.5 MB) with the dataset name.
+#### Annotations 
+Annotate each dataset larger than byte_threshold (default=0.5 MB) with the dataset name.
 
 ```bash
 h5xray /path/to/your/inputfile.h5 --annotate
@@ -30,7 +36,8 @@ h5xray /path/to/your/inputfile.h5 --annotate
 ![Plot Details](img/annotate.png)
 
 
-- **Debug/Plot Boundary:** Include plot axes, legend, colormap, etc. Otherwise, plots a simple barcode-style figure.
+#### Debug/Plot Boundary
+Include plot axes, legend, colormap, etc. Otherwise, plots a simple barcode-style figure.
 
 ```bash
 h5xray /path/to/your/inputfile.h5 --debug
@@ -38,15 +45,10 @@ h5xray /path/to/your/inputfile.h5 --debug
 ![Plot Datasets](img/debug.png)
 
 
-(Tree plot in progress)
+## Interactive Tree Plot (In Progress)
+Currently only in the test notebook.
 
 ![Tree Plot](data/atl03_3_tree.png)
-
-**Updating H5XRAY:**
-```bash
-pip install --upgrade git+https://github.com/jonm3d/h5xray.git
-```
-
 
 Made with ❤️ and ☕️ by:
 
