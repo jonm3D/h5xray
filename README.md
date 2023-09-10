@@ -22,11 +22,8 @@ h5xray /path/to/your/inputfile.h5
 :warning: This will generate __and save__ a plot for the specified HDF5 file. The output image file will be named `inputfile_xray.png`.
 
 ![Default Plot](img/no_options.png)
- 
 
-### Options
-
-#### Annotations 
+### Annotations 
 Annotate each dataset larger than byte_threshold (default=0.5 MB) with the dataset name.
 
 ```bash
@@ -36,13 +33,20 @@ h5xray /path/to/your/inputfile.h5 --annotate
 ![Plot Details](img/annotate.png)
 
 
-#### Debug/Plot Boundary
+### Debug/Plot Boundary
 Include plot axes, legend, colormap, etc. Otherwise, plots a simple barcode-style figure.
 
 ```bash
 h5xray /path/to/your/inputfile.h5 --debug
 ```
 ![Plot Datasets](img/debug.png)
+
+### Adjust Figure Size
+The output plot size can be configured from the command line in inches.
+
+```bash
+h5xray /path/to/your/inputfile.h5 --fisize 6,2
+```
 
 
 ## Interactive Tree Plot (In Progress)
