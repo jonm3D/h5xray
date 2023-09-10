@@ -38,10 +38,6 @@ h5xray /path/to/your/inputfile.h5 --debug
 ![Plot Datasets](img/annotate.png)
 
 
-![All Option Plot](img/debug_annotate.png)
-
-
-
 (Tree plot in progress)
 
 ![Tree Plot](data/atl03_3_tree.png)
