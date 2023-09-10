@@ -1,6 +1,13 @@
 # H5XRay
 Helping Python developers understand the structure and 'cloud-friendliness' of an HDF5 file.
 
+**Installation:**
+Download the h5xray package.
+
+```bash
+pip install git+https://github.com/jonm3d/h5xray.git
+```
+
 **Basic Usage:**
 
 ```bash
@@ -29,6 +36,11 @@ python -m h5xray /path/to/your/inputfile.h5 --debug
 (Tree plot in progress)
 
 ![Tree Plot](data/atl03_3_tree.png)
+
+**Updating H5XRAY:**
+```bash
+pip install --upgrade git+https://github.com/jonm3d/h5xray.git
+```
 
 
 Made with ❤️ and ☕️ by:
