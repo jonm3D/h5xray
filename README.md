@@ -1,5 +1,35 @@
-# h5xray
-Helping Python developers understand the structure and 'cloud friendliness' of an HDF5 file.
+# H5XRay
+Helping Python developers understand the structure and 'cloud-friendliness' of an HDF5 file.
+
+**Basic Usage:**
+
+```bash
+python -m h5xray /path/to/your/inputfile.h5
+```
+
+This will generate a plot for the specified HDF5 file. The output image will be named `inputfile_xray.png`.
+
+**Relevant Options:**
+
+- **Annotations:** Annotate each dataset larger than byte_threshold with the dataset name.
+
+```bash
+python -m h5xray /path/to/your/inputfile.h5 --annotate
+```
+
+- **Debug/Plot Boundary:** Include plot axes, legend, colormap, etc. Otherwise, plots a simple barcode-style figure.
+
+```bash
+python -m h5xray /path/to/your/inputfile.h5 --debug
+```
+
+
+![X-Ray Plot](data/atl03_3_xray.png)
+
+(Tree plot in progress)
+
+![Tree Plot](data/atl03_3_tree.png)
+
 
 Made with ❤️ and ☕️ by:
 
@@ -13,6 +43,3 @@ jonathanmarkel@gmail.com<br />
 
 This work was supported by NASA FINESST Award 80NSSC23K0272.
 
-![X-Ray Plot](data/atl03_3_xray.png)
-
-![Tree Plot](data/atl03_3_tree.png)

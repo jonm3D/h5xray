@@ -93,8 +93,11 @@ def extract_dataset_info(hdf5_file, path='/', request_size_bytes=1024 * 1024):
     return results
 
 def plot_dataframe(df, annotate=True, font_size=10, byte_threshold=0, title="", 
-                   orientation='horizontal', figsize=(7, 9), output_file=None, max_requests=15, minimal=False):
+                   orientation='horizontal', figsize=(7, 9), output_file=None, minimal=False):
     
+    # Dynamically set max_requests based on the dataset and round up to the nearest 10
+    max_requests = np.ceil(df['requests_needed'].max() / 10) * 10
+
     cmap = plt.cm.Reds
     df['norm_requests'] = df['requests_needed'].apply(lambda x: min(x, max_requests) / max_requests)
     df['color'] = df['norm_requests'].apply(lambda x: cmap(x))
@@ -119,11 +122,21 @@ def plot_dataframe(df, annotate=True, font_size=10, byte_threshold=0, title="",
         
         stacked_value += row['bytes']
 
+    # Add the max_requests annotation
+    plt.annotate(
+                f"MaxRequests={int(max_requests)}",
+                xy=(1.0, 1.0),  # Adjust the coordinates for spacing from the top-right corner
+                xycoords='axes fraction',
+                fontsize=6,
+                ha="right",
+                va="top",
+                alpha=0.5  # Set the alpha (transparency) value here
+            )
+    
     if not minimal:
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=0, vmax=max_requests))
         sm.set_array([])
-        cbar = plt.colorbar(sm)  
-        cbar.set_label('Requests Needed', rotation=270, labelpad=15)
+        plt.colorbar(sm).set_label('Requests Needed', rotation=270, labelpad=15)
         
         if orientation == 'horizontal':
             plt.ylabel('Bytes (unordered)')
@@ -137,6 +150,8 @@ def plot_dataframe(df, annotate=True, font_size=10, byte_threshold=0, title="",
             plt.grid(True, axis='x', linestyle='--', linewidth=0.5, alpha=0.5)
         
         plt.title(f"H5XRAY - {title} - Total Size: {stacked_value / (1024**2):.2f} MB")
+        
+
     else:
         plt.axis('off')
 
@@ -150,6 +165,7 @@ def plot_dataframe(df, annotate=True, font_size=10, byte_threshold=0, title="",
         except Exception as e:
             print(f"Error displaying plot: {e}")
             print("Consider providing an output location with the --output argument.")
+
 
 
 def main():
