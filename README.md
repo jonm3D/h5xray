@@ -2,7 +2,7 @@
 Helping Python developers understand the structure and 'cloud-friendliness' of an HDF5 file.
 
 **Installation:**
-Download the h5xray package.
+Download the h5xray package. It is highly recommended to install the package within a development environment.
 
 ```bash
 pip install git+https://github.com/jonm3d/h5xray.git
@@ -15,6 +15,8 @@ h5xray /path/to/your/inputfile.h5
 ```
 
 :warning: This will generate a plot for the specified HDF5 file. The output image will be named `inputfile_xray.png`.
+
+![Default Plot](img/no_options.png)
  
 
 **Relevant Options:**
@@ -25,14 +27,20 @@ h5xray /path/to/your/inputfile.h5
 h5xray /path/to/your/inputfile.h5 --annotate
 ```
 
+![Plot Details](img/debug.png)
+
+
 - **Debug/Plot Boundary:** Include plot axes, legend, colormap, etc. Otherwise, plots a simple barcode-style figure.
 
 ```bash
 h5xray /path/to/your/inputfile.h5 --debug
 ```
+![Plot Datasets](img/annotate.png)
 
 
-![X-Ray Plot](data/atl03_3_xray.png)
+![All Option Plot](img/debug_annotate.png)
+
+
 
 (Tree plot in progress)
 
