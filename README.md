@@ -27,7 +27,7 @@ h5xray /path/to/your/inputfile.h5
 h5xray /path/to/your/inputfile.h5 --annotate
 ```
 
-![Plot Details](img/debug.png)
+![Plot Details](img/annotate.png)
 
 
 - **Debug/Plot Boundary:** Include plot axes, legend, colormap, etc. Otherwise, plots a simple barcode-style figure.
@@ -35,7 +35,7 @@ h5xray /path/to/your/inputfile.h5 --annotate
 ```bash
 h5xray /path/to/your/inputfile.h5 --debug
 ```
-![Plot Datasets](img/annotate.png)
+![Plot Datasets](img/debug.png)
 
 
 (Tree plot in progress)
