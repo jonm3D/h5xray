@@ -11,23 +11,24 @@ pip install git+https://github.com/jonm3d/h5xray.git
 **Basic Usage:**
 
 ```bash
-python -m h5xray /path/to/your/inputfile.h5
+h5xray /path/to/your/inputfile.h5
 ```
 
-This will generate a plot for the specified HDF5 file. The output image will be named `inputfile_xray.png`.
+:warning: This will generate a plot for the specified HDF5 file. The output image will be named `inputfile_xray.png`.
+ 
 
 **Relevant Options:**
 
-- **Annotations:** Annotate each dataset larger than byte_threshold with the dataset name.
+- **Annotations:** Annotate each dataset larger than byte_threshold (default=0.5 MB) with the dataset name.
 
 ```bash
-python -m h5xray /path/to/your/inputfile.h5 --annotate
+h5xray /path/to/your/inputfile.h5 --annotate
 ```
 
 - **Debug/Plot Boundary:** Include plot axes, legend, colormap, etc. Otherwise, plots a simple barcode-style figure.
 
 ```bash
-python -m h5xray /path/to/your/inputfile.h5 --debug
+h5xray /path/to/your/inputfile.h5 --debug
 ```
 
 
