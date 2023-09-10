@@ -52,7 +52,7 @@ h5xray /path/to/your/inputfile.h5 --fisize 6,2
 ## Interactive Tree Plot (In Progress)
 Currently only in the test notebook.
 
-![Tree Plot](data/atl03_3_tree.png)
+![Tree Plot](img/tree.png)
 
 Made with ❤️ and ☕️ by:
 
