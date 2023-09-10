@@ -125,7 +125,7 @@ def plot_dataframe(df, annotate=True, font_size=10, byte_threshold=0, title="",
     # Add the max_requests annotation
     plt.annotate(
                 f"MaxRequests={int(max_requests)}",
-                xy=(1.0, 1.0),  # Adjust the coordinates for spacing from the top-right corner
+                xy=(0.95, 0.95),  # Adjust the coordinates for spacing from the top-right corner
                 xycoords='axes fraction',
                 fontsize=6,
                 ha="right",
