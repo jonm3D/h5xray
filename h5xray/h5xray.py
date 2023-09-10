@@ -180,7 +180,7 @@ def main():
     # Optional arguments
     parser.add_argument("--annotate", action='store_true', help="Whether to annotate on the plot or not. Default is False.")
     parser.add_argument("--font_size", type=int, default=5, help="Font size for annotations on the plot. Default is 5.")
-    parser.add_argument("--byte_threshold", type=int, default=512*1024, help="Minimum bytes required for a dataset to get annotated. Default is 0.5 MB (512 * 1024 bytes).")
+    parser.add_argument("--byte_threshold", type=int, default=1024*1024, help="Minimum bytes required for a dataset to get annotated. Default is 1MB (1024 * 1024 bytes).")
     parser.add_argument("--title", type=str, default=None, help="Title for the plot. If not specified, the name of the input file will be used.")
     parser.add_argument("--orientation", type=str, choices=['vertical', 'horizontal'], default='vertical', help="Orientation of the plot ('vertical' or 'horizontal'). Default is 'vertical'.")
     parser.add_argument("--figsize", type=lambda s: [int(item) for item in s.split(',')], default=[6,2], help="Size of the figure for the plot as width,height. Default is 10,3.")
