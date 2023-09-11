@@ -1,6 +1,8 @@
 # H5XRay
 Helping Python developers understand the structure and 'cloud-friendliness' of an HDF5 file.
 
+Inspired by the h5cloud project at the 2023 ICESat-2 Hackweek.
+
 ## Installation
 Download the h5xray package. It is highly recommended to install the package within a development environment.
 
