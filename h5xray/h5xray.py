@@ -35,8 +35,73 @@ import numpy as np
 import seaborn as sns
 import platform
 import time
+import sys
 from PIL import Image, ImageDraw, ImageFont
 import s3fs
+import requests
+
+def check_if_aws(verbose=False):
+    """
+    Checks if the script is running on an AWS EC2 instance and provides detailed information.
+
+    Args:
+        verbose (bool): Whether to print detailed information. Default is False.
+
+    Returns:
+        dict: A dictionary with the following information:
+            - 'is_ec2' (bool): True if running on an AWS EC2 instance, False otherwise.
+            - 'instance_id' (str): The EC2 instance ID (if available).
+            - 'instance_type' (str): The EC2 instance type (if available).
+            - 'aws_region' (str): The AWS region (if available).
+    """
+    result = {
+        'is_ec2': False,
+        'instance_id': None,
+        'instance_type': None,
+        'aws_region': None
+    }
+
+    try:
+        # Check if running on an EC2 instance
+        response = requests.get('http://169.254.169.254/latest/meta-data/')
+        is_ec2 = response.status_code == 200
+        result['is_ec2'] = is_ec2
+
+        if is_ec2:
+            if verbose:
+                print("Running on an AWS EC2 instance.")
+            
+            # Retrieve EC2 instance ID
+            instance_id_response = requests.get('http://169.254.169.254/latest/meta-data/instance-id')
+            instance_id = instance_id_response.text.strip()
+            result['instance_id'] = instance_id
+
+            # Retrieve EC2 instance type
+            instance_type_response = requests.get('http://169.254.169.254/latest/meta-data/instance-type')
+            instance_type = instance_type_response.text.strip()
+            result['instance_type'] = instance_type
+
+            # Retrieve AWS region
+            aws_region_response = requests.get('http://169.254.169.254/latest/dynamic/instance-identity/document')
+            aws_region = aws_region_response.json().get('region')
+            result['aws_region'] = aws_region
+
+            if verbose:
+                print(f"Instance ID: {instance_id}")
+                print(f"Instance Type: {instance_type}")
+                print(f"AWS Region: {aws_region}")
+
+        else:
+            if verbose:
+                print("Not running on an AWS EC2 instance.")
+
+        return result
+
+    except requests.exceptions.RequestException as e:
+        if verbose:
+            print(f"Error checking AWS EC2 instance status: {e}")
+
+        return result
 
 def parse_s3_url(s3_url):
     # Parse the S3 URL to extract bucket name and key
@@ -247,7 +312,7 @@ def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, repo
             df = pd.DataFrame(file_info)
     except OSError as e:
         print(f"Error reading the HDF5 file: {e}")
-        exit(1)
+        sys.exit(1)  # U
         
     # Update the title in the plotting options
     if 'title' not in plotting_options:
