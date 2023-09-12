@@ -35,12 +35,12 @@ H5xray provides visualization and reports of an HDF5 file structure/readability.
 
 Report for data/atl03_4.h5:
 
-Elapsed time (s): 1.373
-Total datasets: 1020
-Total requests: 1276.0
-Request byte size: 2097152 bytes
-Assumed cost per GET request: $0.0004
-Total cost for file: $0.5104
+- Elapsed time (s): 1.373
+- Total datasets: 1020
+- Total requests: 1276.0
+- Request byte size: 2097152 bytes
+- Assumed cost per GET request: $0.0004
+- Total cost for file: $0.5104
 
 Top 5 datasets with most requests:
 1. /gt3r/heights/lat_ph - 14.0 requests | Chunking: (10000,) | Number of Chunks: [616.0]
