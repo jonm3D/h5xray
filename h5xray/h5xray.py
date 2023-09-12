@@ -36,6 +36,9 @@ import matplotlib.colors as mcolors
 import numpy as np
 import seaborn as sns
 import textwrap
+import platform
+import time
+import psutil
 from PIL import Image, ImageDraw, ImageFont
 
 # If igraph or kaleido is not installed, prompt user to manually install them.
@@ -47,114 +50,152 @@ except ImportError:
     print("Please manually install python-igraph and kaleido to proceed.")
     exit(1)
 
-def extract_dataset_info(hdf5_file, path='/', request_size_bytes=1024 * 1024):
+def print_report(df, file_name, elapsed_time, request_size_bytes=1024*1024):
     """
-    Recursively extract information about groups and datasets in an HDF5 file.
-
+    Prints a report about the HDF5 or netCDF file based on the extracted information.
+    
     Args:
-        hdf5_file (h5py.File): The HDF5 file object.
-        path (str): The current path in the HDF5 structure. Defaults to root ('/').
+        df (pd.DataFrame): DataFrame containing the extracted information.
+        file_name (str): Name of the file.
+        elapsed_time (float): Time taken to process the file.
         request_size_bytes (int): The size of each request in bytes.
-
-    Returns:
-        list: A list of dictionaries, where each dictionary has details about a group or dataset,
-              including the number of requests required to read the dataset.
     """
+    total_datasets = len(df)
+    total_requests = df['requests_needed'].sum()
+
+    # Extracting top 5 datasets with most requests
+    top_datasets = df.nlargest(5, 'requests_needed')
+    
+    # Reporting system details
+    system_info = {
+        "OS": os.name,
+        "Platform": platform.system(),
+        "Platform Version": platform.version(),
+        "Python Version": platform.python_version(),
+        "Machine": platform.machine(),
+        "Processor": platform.processor(),
+        "Current Working Directory": os.getcwd(),
+        "Host Name": platform.node(),
+        "Number of CPUs": os.cpu_count()
+    }
+
+    print(f"\nReport for {file_name}:")
+    print("-" * 50)
+    print(f"Elapsed time (s): {elapsed_time:.3f}")
+    print(f"Total datasets: {total_datasets}")
+    print(f"Total requests: {total_requests}")
+    print(f"Request byte size: {request_size_bytes} bytes")
+    print("-" * 50)
+    print("Top 5 datasets with most requests:")
+    for index, row in top_datasets.iterrows():
+        chunk_info = f"Chunking: {row['chunking']} | Number of Chunks: {row['num_chunks']}" if row['chunking'] else "Contiguous"
+        print(f"{row['path']} - {row['requests_needed']} requests | {chunk_info}")
+    print("-" * 50)
+    print("System Info:")
+    for key, value in system_info.items():
+        print(f"{key}: {value}")
+    print("-" * 50)
+    print("\n")
+
+
+def extract_dataset_info(data_file, path='/', request_size_bytes=2*1024 * 1024):
     results = []
-    # Navigate the current group's items.
-    for name, item in hdf5_file[path].items():
-        # Construct the full path for the current item.
+    file_type = None
+    
+    # Helper function to compute the number of chunks for a dataset.
+    def compute_num_chunks(dataset_shape, chunk_shape):
+        return [np.ceil(ds/ch) for ds, ch in zip(dataset_shape, chunk_shape)]
+
+    # Helper function to compute the number of requests needed for a dataset.
+    def compute_requests_needed(byte_size, request_size_bytes):
+        return np.ceil(byte_size / request_size_bytes)
+
+    for name, item in data_file[path].items():
         current_path = f"{path}/{name}" if path != '/' else f"/{name}"
         
         if isinstance(item, h5py.Group):
-            # Recursively explore the contents of the group.
-            results.extend(extract_dataset_info(hdf5_file, current_path, request_size_bytes))
+            results.extend(extract_dataset_info(data_file, current_path, request_size_bytes))
         elif isinstance(item, h5py.Dataset):
-            # If it's a dataset, extract dataset details.
-            depth = current_path.count('/') - 1  # Depth is based on the number of slashes in the path.
-
-            # Calculate the number of requests needed to read the dataset
-            dataset_size_bytes = item.size * item.dtype.itemsize
-            requests_needed = (dataset_size_bytes + request_size_bytes - 1) // request_size_bytes
-
+            chunk_shape = item.chunks
+            num_chunks = compute_num_chunks(item.shape, chunk_shape) if chunk_shape else None
+            
             dataset_info = {
-                'top': current_path.split('/')[1],  # Top level group for visualization
+                'top': current_path.split('/')[1],
                 'name': current_path.split('/')[-1],
                 'path': current_path,
                 'type': 'Dataset',
-                'depth': depth,
-                'chunking': item.chunks,
+                'chunking': chunk_shape,
+                'num_chunks': num_chunks,
                 'bytes': item.id.get_storage_size(),
-                'start_byte': item.id.get_offset(),
                 'attributes': dict(item.attrs),
-                'requests_needed': requests_needed,  # Number of requests required to read the dataset
+                'requests_needed': compute_requests_needed(item.id.get_storage_size(), request_size_bytes)
             }
             results.append(dataset_info)
+    
     return results
 
-def plot_dataframe(df, annotate=True, font_size=10, byte_threshold=0, title="", 
-                   orientation='horizontal', figsize=(7, 9), output_file=None, minimal=False):
-    
-    # Dynamically set max_requests based on the dataset and round up to the nearest 10
-    max_requests = np.ceil(df['requests_needed'].max() / 10) * 10
+def plot_dataframe(df, plotting_options={}):
+    """
+    Plots the DataFrame containing dataset details.
 
-    cmap = plt.cm.Reds
+    Args:
+        df (pd.DataFrame): DataFrame containing dataset details.
+        plotting_options (dict): A dictionary of plotting options. You can specify any of the following options:
+            - 'figsize': Size of the figure for the plot specified as (width, height). Default is (8, 2).
+            - 'cmap': Colormap for coloring bars. Default is plt.cm.Spectral_r.
+            - 'max_requests': Maximum number of requests for color normalization. Default is 10.
+            - 'font_size': Size of the font for annotations on the plot. Default is 10.
+            - 'byte_threshold': Minimum bytes required for a dataset to get annotated. Default is 5MB (5 * 1024 * 1024 bytes).
+            - 'title': Custom title for the plot. If not specified, the name of the input file will be used.
+            - 'debug': Whether to provide a detailed plot for debugging. Default is False (minimal plot).
+            - 'output_file': Path to the output image file. If not provided, it defaults to '[input_filename]_xray.png'.
+
+    Returns:
+        None
+    """
+    cmap = plotting_options.get('cmap', plt.cm.coolwarm)
+    max_requests = plotting_options.get('max_requests', 10)
+    font_size = plotting_options.get('font_size', 7)
+    byte_threshold = plotting_options.get('byte_threshold', 5*1024*1024)
+    debug = plotting_options.get('debug', False)
+
+    if 'figsize' in plotting_options:
+        figsize = plotting_options['figsize']
+    elif debug:
+        figsize = (8, 2)
+    else:
+        figsize = (6, 0.8)
+    output_file = plotting_options.get('output_file', None)
+    title = plotting_options.get('title', output_file)
+
+
     df['norm_requests'] = df['requests_needed'].apply(lambda x: min(x, max_requests) / max_requests)
     df['color'] = df['norm_requests'].apply(lambda x: cmap(x))
 
     plt.figure(figsize=figsize)
     stacked_value = 0 
 
-    edge_color = 'black' if annotate else None
-    linewidth = 0.05 if annotate else 0
-
+    edge_color = plotting_options.get('edge_color', 'black' if debug else None)
+    linewidth = plotting_options.get('linewidth', 0.05 if debug else 0)
+    
     for index, row in df.iterrows():
-        if orientation == 'horizontal':
-            plt.bar('Combined', row['bytes'], bottom=stacked_value, color=row['color'], edgecolor=edge_color, linewidth=linewidth)
-            if annotate and row['bytes'] > byte_threshold:
-                chunk_center = stacked_value + row['bytes'] / 2
-                plt.text('Combined', chunk_center, row['name'], ha='center', va='center', color='black', fontsize=font_size)
-        else:
-            plt.barh('Combined', row['bytes'], left=stacked_value, color=row['color'], edgecolor=edge_color, linewidth=linewidth)
-            if annotate and row['bytes'] > byte_threshold:
-                chunk_center = stacked_value + row['bytes'] / 2
-                plt.text(chunk_center, 'Combined', row['name'], ha='center', va='center', color='black', fontsize=font_size, rotation=90)
-        
+        plt.barh('Combined', row['bytes'], left=stacked_value, color=row['color'], edgecolor=edge_color, linewidth=linewidth)
+        if debug and row['bytes'] > byte_threshold:
+            chunk_center = stacked_value + row['bytes'] / 2
+            plt.text(chunk_center, 'Combined', row['name'], ha='center', va='center', color='black', fontsize=font_size, rotation=90)
         stacked_value += row['bytes']
 
-    # Add the max_requests annotation
-    plt.annotate(
-                f"MaxRequests={int(max_requests)}",
-                xy=(0.95, 0.95),  # Adjust the coordinates for spacing from the top-right corner
-                xycoords='axes fraction',
-                fontsize=6,
-                ha="right",
-                va="top",
-                alpha=0.5  # Set the alpha (transparency) value here
-            )
-    
-    if not minimal:
+    if debug:
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=0, vmax=max_requests))
         sm.set_array([])
         plt.colorbar(sm).set_label('Requests Needed', rotation=270, labelpad=15)
-        
-        if orientation == 'horizontal':
-            plt.ylabel('Bytes (unordered)')
-            plt.xticks([])  
-            plt.yticks([])
-            plt.grid(True, axis='y', linestyle='--', linewidth=0.5, alpha=0.5)
-        else:
-            plt.xlabel('Bytes (unordered)')
-            plt.xticks([])  
-            plt.yticks([])
-            plt.grid(True, axis='x', linestyle='--', linewidth=0.5, alpha=0.5)
-        
+        plt.xticks([])  
+        plt.yticks([])
+        plt.grid(True, axis='x', linestyle='--', linewidth=0.5, alpha=0.5)
         plt.title(f"H5XRAY - {title} - Total Size: {stacked_value / (1024**2):.2f} MB")
-        
-
     else:
         plt.axis('off')
-
+    
     plt.tight_layout()
 
     if output_file:
@@ -164,63 +205,66 @@ def plot_dataframe(df, annotate=True, font_size=10, byte_threshold=0, title="",
             plt.show()
         except Exception as e:
             print(f"Error displaying plot: {e}")
-            print("Consider providing an output location with the --output argument.")
 
+def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, report=True):
+    """
+    Analyze and visualize the structure of an HDF5 file.
 
+    Args:
+        input_file (str): Path to the input HDF5 file.
+        request_byte_size (int): The size of each request in bytes. Default is 2MB (2*1024*1024 bytes).
+        plotting_options (dict): A dictionary of plotting options. You can specify any of the following options:
+            - 'figsize': Size of the figure for the plot specified as (width, height). Default is (8, 2).
+            - 'cmap': Colormap for coloring bars. Default is plt.cm.Spectral_r.
+            - 'max_requests': Maximum number of requests for color normalization. Default is 10.
+            - 'font_size': Size of the font for annotations on the plot. Default is 10.
+            - 'byte_threshold': Minimum bytes required for a dataset to get annotated. Default is 1MB (1024 * 1024 bytes).
+            - 'title': Custom title for the plot. If not specified, the name of the input file will be used.
+            - 'debug': Whether to provide a detailed plot for debugging. Default is False (minimal plot).
+            - 'output_file': Path to the output image file. If not provided, it defaults to '[input_filename]_xray.png'.
+        report (bool): Whether to print a report about the HDF5 file. Default is True.
 
-def main():
-    parser = argparse.ArgumentParser(description="Analyze HDF5 files and produce plots.")
-    
-    # Required input file argument
-    parser.add_argument("input_file", type=str, help="Path to the input HDF5 file.")
-    
-    # Optional output file argument with default behavior
-    parser.add_argument("--output_file", type=str, default=None, help="Path to the output image file. If not provided, it defaults to '[input_filename]_xray.png'.")
-    
-    # Optional arguments
-    parser.add_argument("--annotate", action='store_true', help="Whether to annotate on the plot or not. Default is False.")
-    parser.add_argument("--font_size", type=int, default=5, help="Font size for annotations on the plot. Default is 5.")
-    parser.add_argument("--byte_threshold", type=int, default=1024*1024, help="Minimum bytes required for a dataset to get annotated. Default is 1MB (1024 * 1024 bytes).")
-    parser.add_argument("--title", type=str, default=None, help="Title for the plot. If not specified, the name of the input file will be used.")
-    parser.add_argument("--orientation", type=str, choices=['vertical', 'horizontal'], default='vertical', help="Orientation of the plot ('vertical' or 'horizontal'). Default is 'vertical'.")
-    parser.add_argument("--figsize", type=lambda s: [int(item) for item in s.split(',')], default=[6,2], help="Size of the figure for the plot as width,height. Default is 10,3.")
-    
-    # Add the debug argument
-    parser.add_argument("--debug", action='store_true', help="Provide a detailed plot for debugging. Default is a minimal plot.")
-    
-    args = parser.parse_args()
-    
-    # Determine the default output filename if not specified
-    if args.output_file is None:
-        base_name = os.path.splitext(args.input_file)[0]  # Get the name without extension
-        args.output_file = base_name + "_xray.png"
-        
+    Returns:
+        None
+    """
+    # Determine the output filename if not specified by the user
+    if 'output_file' not in plotting_options or plotting_options['output_file'] == 'terminal':
+        base_name = os.path.splitext(input_file)[0]  # Get the name without extension
+        plotting_options['output_file'] = base_name + "_xray.png"
+
     # Try to open the HDF5 file and handle potential errors
     try:
-        with h5py.File(args.input_file, "r") as hdf5_file:
-            file_info = extract_dataset_info(hdf5_file)
+        with h5py.File(input_file, "r") as hdf5_file:
+            start_time = time.time()
+            file_info = extract_dataset_info(hdf5_file, request_size_bytes=request_byte_size)
+            end_time = time.time()
+            elapsed_time = end_time - start_time
             df = pd.DataFrame(file_info)
     except OSError as e:
         print(f"Error reading the HDF5 file: {e}")
         exit(1)
-    
-    # Set title based on input if not provided
-    if args.title is None:
-        args.title = os.path.basename(args.input_file)
-    
-    # Infer the file format from the output file path if not provided
-    file_format = os.path.splitext(args.output_file)[1].replace(".", "")
-    
-    plot_dataframe(df, 
-                   annotate=args.annotate, 
-                   font_size=args.font_size, 
-                   byte_threshold=args.byte_threshold, 
-                   title=args.title, 
-                   orientation=args.orientation, 
-                   figsize=args.figsize,
-                   output_file=args.output_file,
-                   minimal=not args.debug)  # Set the minimal parameter based on the debug argument
 
+    if report:
+        print_report(df, input_file, elapsed_time, request_byte_size)
+
+    plot_dataframe(df, plotting_options)
+
+
+    
+def main():
+    #...
+    parser = argparse.ArgumentParser(description="Analyze and visualize HDF5 file structures.")
+    parser.add_argument("input_file", type=str, help="Path to the input HDF5 file.")
+    parser.add_argument("--output_file", type=str, default=None, help="Path to the output image file. If not provided, it defaults to '[input_filename]_xray.png'.")
+    parser.add_argument("--debug", action='store_true', help="Provide a detailed plot for debugging. Default is a minimal plot.")
+    parser.add_argument("--font_size", type=int, default=5, help="Font size for annotations on the plot. Default is 5.")
+    parser.add_argument("--byte_threshold", type=int, default=1024*1024, help="Minimum bytes required for a dataset to get annotated. Default is 1MB.")
+    parser.add_argument("--title", type=str, default=None, help="Title for the plot. If not specified, the name of the input file will be used.")
+    # parser.add_argument("--figsize", type=lambda s: [int(item) for item in s.split(',')], default=[7,1], help="Size of the figure for the plot as width,height. Default is 6,2.")
+    
+    args = parser.parse_args()
+    analyze(args.input_file, output_file=args.output_file, 
+            debug=args.debug, font_size=args.font_size, byte_threshold=args.byte_threshold, title=args.title, figsize=args.figsize)
 
 if __name__ == "__main__":
     main()
