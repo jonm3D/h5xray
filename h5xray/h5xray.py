@@ -17,7 +17,7 @@ Arguments:
     - --output_file OUTPUT_FILE_PATH: The path where the generated image should be saved.
     - --annotate: Flag to include dataset names on the plot. Default is False.
     - --font_size: Size of the font for annotations on the plot. Default is 7.
-    - --byte_threshold: Minimum bytes required for a dataset to get annotated. Default is 1 MiB (1024 * 1024 bytes).
+    - --byte_threshold: Minimum bytes required for a dataset to get annotated. Default is 2 MiB (2 * 1024 * 1024 bytes).
     - --title: Custom title for the plot. If not specified, the name of the input file will be used.
     - --orientation: Orientation of the plot ('vertical' or 'horizontal'). Default is 'vertical'.
     - --figsize: Size of the figure for the plot specified as width,height (e.g., 10,3). Default is 6,2.
@@ -39,69 +39,39 @@ import sys
 from PIL import Image, ImageDraw, ImageFont
 import s3fs
 import requests
+import logging
+import socket
+import icepyx as ipx
 
-def check_if_aws(verbose=False):
+def open_hdf5_file_from_s3(s3_url, earthdata_uid, earthdata_pwd):
     """
-    Checks if the script is running on an AWS EC2 instance and provides detailed information.
-
+    Opens an HDF5 file from S3 using Earthdata credentials.
+    
     Args:
-        verbose (bool): Whether to print detailed information. Default is False.
-
+        s3_url (str): The S3 URL of the HDF5 file.
+        earthdata_uid (str): Earthdata username.
+        earthdata_pwd (str): Earthdata password.
+        
     Returns:
-        dict: A dictionary with the following information:
-            - 'is_ec2' (bool): True if running on an AWS EC2 instance, False otherwise.
-            - 'instance_id' (str): The EC2 instance ID (if available).
-            - 'instance_type' (str): The EC2 instance type (if available).
-            - 'aws_region' (str): The AWS region (if available).
+        h5py.File: The opened HDF5 file.
     """
-    result = {
-        'is_ec2': False,
-        'instance_id': None,
-        'instance_type': None,
-        'aws_region': None
-    }
+    
+    # Create an icepyx Query Object for Earthdata login
+    # Dummy values for spatial_extent and date_range since we're just using it for the login capability
+    reg = ipx.Query('ATL03', [-45, 58, -35, 75], ['2019-11-30', '2019-11-30'])
+    reg.earthdata_login(earthdata_uid, earthdata_pwd, s3token=True)
+    
+    # Set up S3 Filesystem with Earthdata credentials
+    s3 = s3fs.S3FileSystem(
+        key=reg._s3login_credentials['accessKeyId'],
+        secret=reg._s3login_credentials['secretAccessKey'],
+        token=reg._s3login_credentials['sessionToken']
+    )
+    
+    # Open the HDF5 file from S3 and return it
+    s3f = s3.open(s3_url, 'rb')
+    return h5py.File(s3f, 'r')
 
-    try:
-        # Check if running on an EC2 instance
-        response = requests.get('http://169.254.169.254/latest/meta-data/')
-        is_ec2 = response.status_code == 200
-        result['is_ec2'] = is_ec2
-
-        if is_ec2:
-            if verbose:
-                print("Running on an AWS EC2 instance.")
-            
-            # Retrieve EC2 instance ID
-            instance_id_response = requests.get('http://169.254.169.254/latest/meta-data/instance-id')
-            instance_id = instance_id_response.text.strip()
-            result['instance_id'] = instance_id
-
-            # Retrieve EC2 instance type
-            instance_type_response = requests.get('http://169.254.169.254/latest/meta-data/instance-type')
-            instance_type = instance_type_response.text.strip()
-            result['instance_type'] = instance_type
-
-            # Retrieve AWS region
-            aws_region_response = requests.get('http://169.254.169.254/latest/dynamic/instance-identity/document')
-            aws_region = aws_region_response.json().get('region')
-            result['aws_region'] = aws_region
-
-            if verbose:
-                print(f"Instance ID: {instance_id}")
-                print(f"Instance Type: {instance_type}")
-                print(f"AWS Region: {aws_region}")
-
-        else:
-            if verbose:
-                print("Not running on an AWS EC2 instance.")
-
-        return result
-
-    except requests.exceptions.RequestException as e:
-        if verbose:
-            print(f"Error checking AWS EC2 instance status: {e}")
-
-        return result
 
 def parse_s3_url(s3_url):
     # Parse the S3 URL to extract bucket name and key
@@ -110,21 +80,60 @@ def parse_s3_url(s3_url):
     key = '/'.join(parts[1:])
     return bucket_name, key
 
-def open_hdf5_file_from_s3(s3_url):
-    # Parse the S3 URL to extract bucket name and key
-    bucket_name, key = parse_s3_url(s3_url)
+def check_if_aws(verbose=False):
+    """Check if we're running on an AWS EC2 instance and optionally print details."""
+    metadata_url = "http://169.254.169.254/latest/meta-data/"
 
-    # Create an s3fs filesystem
-    fs = s3fs.S3FileSystem(anon=False)  # Set anon=False if using AWS credentials
+    def print_system_info():
+        """Print information about the current system."""
+        print(f"System: {platform.system()}")
+        print(f"Node Name (Hostname): {platform.node()}")
+        print(f"Release: {platform.release()}")
+        print(f"Version: {platform.version()}")
+        print(f"Machine: {platform.machine()}")
+        print(f"Processor: {platform.processor()}")
+        print(f"Python version: {platform.python_version()}")
+        try:
+            print(f"IP Address: {socket.gethostbyname(socket.gethostname())}")
+        except:
+            print("Could not fetch IP Address.")
+        print(f"Current Working Directory: {os.getcwd()}")
 
-    # Open the HDF5 file directly from S3
-    with fs.open(f"{bucket_name}/{key}", "rb") as s3_file:
-        # Wrap the S3 file in an h5py File object
-        hdf5_file = h5py.File(s3_file, "r")
+    try:
+        # Check if we're on EC2: a simple way is to fetch the instance-id.
+        instance_id = requests.get(metadata_url + "instance-id", timeout=1).text
+        if not instance_id:
+            if verbose:
+                print("Not running on an AWS EC2 instance. System details are as follows:")
+                print_system_info()
+            return False
 
-    return hdf5_file
+        if verbose:
+            print("Running on an AWS EC2 instance with the following details:")
+            
+            # Fetch all available metadata paths
+            paths = requests.get(metadata_url, timeout=1).text.split("\n")
+            
+            for path in paths:
+                # Skip directories (they end with '/')
+                if path.endswith('/'):
+                    continue
+                
+                try:
+                    detail = requests.get(metadata_url + path, timeout=1).text
+                    print(f"{path}: {detail}")
+                except requests.RequestException as e:
+                    print(f"Failed to fetch {path}: {e}")
 
-def print_report(df, file_name, elapsed_time, request_size_bytes=1024*1024, cost_per_request=0.0004):
+        return True
+    except requests.RequestException:
+        # If we can't fetch the instance-id, we're likely not on EC2.
+        if verbose:
+            print("Not running on an AWS EC2 instance. System details are as follows:")
+            print_system_info()
+        return False
+
+def print_report(df, file_name, elapsed_time, request_size_bytes=2*1024*1024, cost_per_request=0.0004):
     """
     Prints a report about the HDF5 file data and GET requests, including cost calculation per GET request.
     
@@ -159,12 +168,12 @@ def print_report(df, file_name, elapsed_time, request_size_bytes=1024*1024, cost
 
     print(f"\nReport for {file_name}:")
     print("-" * 50)
+    print(f"Total cost for file: ${total_cost:.4f}")
     print(f"Elapsed time (s): {elapsed_time:.3f}")
     print(f"Total datasets: {total_datasets}")
     print(f"Total requests: {total_requests}")
     print(f"Request byte size: {request_size_bytes} bytes")
     print(f"Assumed cost per GET request: ${cost_per_request:.4f}")
-    print(f"Total cost for file: ${total_cost:.4f}")
     print("-" * 50)
     print("Top 5 datasets with most requests:")
     for index, row in top_datasets.iterrows():
@@ -225,7 +234,7 @@ def plot_dataframe(df, request_byte_size, plotting_options={}):
             - 'cmap': Colormap for coloring bars. Default is plt.cm.coolwarm.
             - 'max_requests': Maximum number of requests for color normalization. Default is 10.
             - 'font_size': Size of the font for annotations on the plot. Default is 10.
-            - 'byte_threshold': Minimum bytes required for a dataset to get annotated. Default is 5 MiB (5 * 1024 * 1024 bytes).
+            - 'byte_threshold': Minimum bytes required for a dataset to get annotated. Default is 4 MiB (4 * 1024 * 1024 bytes).
             - 'title': Custom title for the plot. If not specified, the name of the input file will be used.
             - 'debug': Whether to provide a detailed plot for debugging. Default is False (minimal plot).
             - 'output_file': Path to the output image file. If not provided, it defaults to '[input_filename]_xray.png'.
@@ -234,9 +243,9 @@ def plot_dataframe(df, request_byte_size, plotting_options={}):
         None
     """
     cmap = plotting_options.get('cmap', plt.cm.coolwarm)
-    max_requests = plotting_options.get('max_requests', 10)
+    max_requests = plotting_options.get('max_requests', 15)
     font_size = plotting_options.get('font_size', 7)
-    byte_threshold = plotting_options.get('byte_threshold', 5*1024*1024)
+    byte_threshold = plotting_options.get('byte_threshold', 2*2*1024*1024)
     debug = plotting_options.get('debug', False)
 
     if 'figsize' in plotting_options:
@@ -287,33 +296,48 @@ def plot_dataframe(df, request_byte_size, plotting_options={}):
         except Exception as e:
             print(f"Error displaying plot: {e}")
 
-def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, report=True, cost_per_request=0.0004):
+def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, report=True, cost_per_request=0.0004,
+            aws_access_key=None, aws_secret_key=None):
     """
     Main function for plotting / reporting details of an HDF5 file.
 
     Args:
-        input_file (str): Path to the input HDF5 file.
+        input_file (str): Path to the input HDF5 file or S3 URL.
         request_byte_size (int): The size of each request in bytes. Default is 2MiB (2*1024*1024 bytes).
-        plotting_options (dict): A dictionary of plotting options. Refer to the plot_dataframe function for available options.
+        plotting_options (dict): A dictionary of plotting options.
         report (bool): Whether to print a report about the HDF5 file. Default is True.
         cost_per_request (float): Cost per GET request (default: $0.0004 per request).
+        aws_access_key (str, optional): AWS access key for S3 URLs.
+        aws_secret_key (str, optional): AWS secret key for S3 URLs.
 
     Returns:
         None
     """
 
+    # Check if the input file is an S3 URL
+    is_s3_url = input_file.startswith("s3://")
+
     # Try to open the HDF5 file and handle potential errors
     try:
-        with h5py.File(input_file, "r") as hdf5_file:
+        if is_s3_url:
+            hdf5_file = open_hdf5_file_from_s3(input_file, aws_access_key, aws_secret_key)
+            if hdf5_file is None:
+                raise ValueError("Error reading the HDF5 file from S3.")
             start_time = time.time()
             file_info = extract_dataset_info(hdf5_file, request_size_bytes=request_byte_size)
             end_time = time.time()
-            elapsed_time = end_time - start_time
-            df = pd.DataFrame(file_info)
+            hdf5_file.close()  # Make sure to close the file if opened from S3
+        else:
+            with h5py.File(input_file, "r") as hdf5_file:
+                start_time = time.time()
+                file_info = extract_dataset_info(hdf5_file, request_size_bytes=request_byte_size)
+                end_time = time.time()
+
+        elapsed_time = end_time - start_time
+        df = pd.DataFrame(file_info)
     except OSError as e:
-        print(f"Error reading the HDF5 file: {e}")
-        sys.exit(1)  # U
-        
+        raise OSError(f"Error reading the HDF5 file: {e}")
+
     # Update the title in the plotting options
     if 'title' not in plotting_options:
         file_name = os.path.splitext(os.path.basename(input_file))[0]  # Get the original filename without extension
@@ -323,38 +347,6 @@ def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, repo
         print_report(df, input_file, elapsed_time, request_byte_size, cost_per_request)
 
     plot_dataframe(df, request_byte_size, plotting_options)
-    
-def main():
-    parser = argparse.ArgumentParser(description="Analyze and visualize HDF5 file structures.")
-    input_file_help = "Path to the input HDF5 file. This can be either a local file path or an S3 URL (e.g., s3://my-bucket/path/to/file.h5)."    
-    parser.add_argument("input_file", type=str, help=input_file_help)
-    parser.add_argument("--output_file", "-o", type=str, default=None, help="Path to the output image file. If not provided, it defaults to '[input_filename]_xray.png'.")
-    parser.add_argument("--debug", "-d", action='store_true', help="Provide a detailed plot for debugging. Default is a minimal plot.")
-    parser.add_argument("--font_size", "-f", type=int, default=7, help="Font size for annotations on the plot. Default is 7.")
-    parser.add_argument("--byte_threshold", "-b", type=int, default=1024*1024, help="Minimum bytes required for a dataset to get annotated. Default is 1MiB.")
-    parser.add_argument("--title", "-t", type=str, default=None, help="Title for the plot. If not specified, the name of the input file will be used.")
-    parser.add_argument("--figsize", "-s", type=lambda s: [int(item) for item in s.split(',')], default=[6,2], help="Size of the figure for the plot as width,height. Default is 6,2.")
-    parser.add_argument("--request_byte_size", "-r", type=int, default=2*1024*1024, help="Size of each request in bytes. Default is 2 MiB (2*1024*1024 bytes).")
-    parser.add_argument("--cost_per_request", "-c", type=float, default=0.0004, help="Cost per GET request. Default is $0.0004 per request.")
-
-    args = parser.parse_args()
-    plotting_options = {
-        'output_file': args.output_file,
-        'debug': args.debug,
-        'font_size': args.font_size,
-        'byte_threshold': args.byte_threshold,
-        'title': args.title,
-        'figsize': args.figsize
-    }
-
-    # Check if the input file is an S3 URL
-    if args.input_file.startswith('s3://'):
-        # Open the HDF5 file directly
-        hdf5_file = s3_utils.open_hdf5_file_from_s3(args.input_file)
-    else: #local path
-        hdf5_file = args.input_file
-
-    analyze(hdf5_file, request_byte_size=args.request_byte_size, plotting_options=plotting_options, cost_per_request=args.cost_per_request)
 
 if __name__ == "__main__":
     main()
