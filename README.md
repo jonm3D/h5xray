@@ -23,7 +23,7 @@ pip install --upgrade git+https://github.com/jonm3d/h5xray.git
 h5xray /path/to/your/inputfile.h5
 ```
 
-Example output. See demo.ipynb for usage examples.
+Example output. See demo.ipynb for usage examples. Read from local or from S3.
 
 ![Default Plot](img/barcode.png)
 

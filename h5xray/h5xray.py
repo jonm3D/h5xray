@@ -153,19 +153,6 @@ def print_report(df, file_name, elapsed_time, request_size_bytes=2*1024*1024, co
     # Extracting top 5 datasets with most requests
     top_datasets = df.nlargest(5, 'requests_needed')
     
-    # Reporting system details
-    system_info = {
-        "OS": os.name,
-        "Platform": platform.system(),
-        "Platform Version": platform.version(),
-        "Python Version": platform.python_version(),
-        "Machine": platform.machine(),
-        "Processor": platform.processor(),
-        "Current Working Directory": os.getcwd(),
-        "Host Name": platform.node(),
-        "Number of CPUs": os.cpu_count()
-    }
-
     print(f"\nReport for {file_name}:")
     print("-" * 50)
     print(f"Total cost for file: ${total_cost:.4f}")
@@ -180,13 +167,25 @@ def print_report(df, file_name, elapsed_time, request_size_bytes=2*1024*1024, co
         chunk_info = f"Chunking: {row['chunking']} | Number of Chunks: {row['num_chunks']}" if row['chunking'] else "Contiguous"
         print(f"{row['path']} - {row['requests_needed']} requests | {chunk_info}")
     print("-" * 50)
+    
+    # System information might be less relevant for decision-makers focused on costs and file processing details.
+    # They are kept at the end of the report.
+    system_info = {
+        "OS": os.name,
+        "Platform": platform.system(),
+        "Platform Version": platform.version(),
+        "Python Version": platform.python_version(),
+        "Machine": platform.machine(),
+        "Processor": platform.processor(),
+        "Current Working Directory": os.getcwd(),
+        "Host Name": platform.node(),
+        "Number of CPUs": os.cpu_count()
+    }
     print("System Info:")
     for key, value in system_info.items():
         print(f"{key}: {value}")
     print("-" * 50)
     print("\n")
-
-
 
 def extract_dataset_info(data_file, path='/', request_size_bytes=2*1024 * 1024):
     results = []
