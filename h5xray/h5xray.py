@@ -36,22 +36,45 @@ import seaborn as sns
 import platform
 import time
 from PIL import Image, ImageDraw, ImageFont
-from s3_utils import parse_s3_url, open_hdf5_file_from_s3
+import s3fs
 
+def parse_s3_url(s3_url):
+    # Parse the S3 URL to extract bucket name and key
+    parts = s3_url.replace('s3://', '').split('/')
+    bucket_name = parts[0]
+    key = '/'.join(parts[1:])
+    return bucket_name, key
 
+def open_hdf5_file_from_s3(s3_url):
+    # Parse the S3 URL to extract bucket name and key
+    bucket_name, key = parse_s3_url(s3_url)
 
-def print_report(df, file_name, elapsed_time, request_size_bytes=1024*1024):
+    # Create an s3fs filesystem
+    fs = s3fs.S3FileSystem(anon=False)  # Set anon=False if using AWS credentials
+
+    # Open the HDF5 file directly from S3
+    with fs.open(f"{bucket_name}/{key}", "rb") as s3_file:
+        # Wrap the S3 file in an h5py File object
+        hdf5_file = h5py.File(s3_file, "r")
+
+    return hdf5_file
+
+def print_report(df, file_name, elapsed_time, request_size_bytes=1024*1024, cost_per_request=0.0004):
     """
-    Prints a report about the HDF5 file data and GET requests.
+    Prints a report about the HDF5 file data and GET requests, including cost calculation per GET request.
     
     Args:
         df (pd.DataFrame): DataFrame containing the extracted information.
         file_name (str): Name of the file.
         elapsed_time (float): Time taken to process the file.
         request_size_bytes (int): The size of each request in bytes.
+        cost_per_request (float): Cost per GET request (default: $0.0004 per request).
     """
     total_datasets = len(df)
     total_requests = df['requests_needed'].sum()
+    
+    # Calculate the cost for GET requests
+    total_cost = total_requests * cost_per_request
 
     # Extracting top 5 datasets with most requests
     top_datasets = df.nlargest(5, 'requests_needed')
@@ -75,6 +98,8 @@ def print_report(df, file_name, elapsed_time, request_size_bytes=1024*1024):
     print(f"Total datasets: {total_datasets}")
     print(f"Total requests: {total_requests}")
     print(f"Request byte size: {request_size_bytes} bytes")
+    print(f"Assumed cost per GET request: ${cost_per_request:.4f}")
+    print(f"Total cost for file: ${total_cost:.4f}")
     print("-" * 50)
     print("Top 5 datasets with most requests:")
     for index, row in top_datasets.iterrows():
@@ -86,6 +111,8 @@ def print_report(df, file_name, elapsed_time, request_size_bytes=1024*1024):
         print(f"{key}: {value}")
     print("-" * 50)
     print("\n")
+
+
 
 def extract_dataset_info(data_file, path='/', request_size_bytes=2*1024 * 1024):
     results = []
@@ -195,7 +222,7 @@ def plot_dataframe(df, request_byte_size, plotting_options={}):
         except Exception as e:
             print(f"Error displaying plot: {e}")
 
-def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, report=True):
+def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, report=True, cost_per_request=0.0004):
     """
     Main function for plotting / reporting details of an HDF5 file.
 
@@ -204,6 +231,7 @@ def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, repo
         request_byte_size (int): The size of each request in bytes. Default is 2MiB (2*1024*1024 bytes).
         plotting_options (dict): A dictionary of plotting options. Refer to the plot_dataframe function for available options.
         report (bool): Whether to print a report about the HDF5 file. Default is True.
+        cost_per_request (float): Cost per GET request (default: $0.0004 per request).
 
     Returns:
         None
@@ -227,10 +255,10 @@ def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, repo
         plotting_options['title'] = file_name
 
     if report:
-        print_report(df, input_file, elapsed_time, request_byte_size)
+        print_report(df, input_file, elapsed_time, request_byte_size, cost_per_request)
 
     plot_dataframe(df, request_byte_size, plotting_options)
-
+    
 def main():
     parser = argparse.ArgumentParser(description="Analyze and visualize HDF5 file structures.")
     input_file_help = "Path to the input HDF5 file. This can be either a local file path or an S3 URL (e.g., s3://my-bucket/path/to/file.h5)."    
@@ -242,6 +270,7 @@ def main():
     parser.add_argument("--title", "-t", type=str, default=None, help="Title for the plot. If not specified, the name of the input file will be used.")
     parser.add_argument("--figsize", "-s", type=lambda s: [int(item) for item in s.split(',')], default=[6,2], help="Size of the figure for the plot as width,height. Default is 6,2.")
     parser.add_argument("--request_byte_size", "-r", type=int, default=2*1024*1024, help="Size of each request in bytes. Default is 2 MiB (2*1024*1024 bytes).")
+    parser.add_argument("--cost_per_request", "-c", type=float, default=0.0004, help="Cost per GET request. Default is $0.0004 per request.")
 
     args = parser.parse_args()
     plotting_options = {
@@ -260,7 +289,7 @@ def main():
     else: #local path
         hdf5_file = args.input_file
 
-    analyze(hdf5_file, request_byte_size=args.request_byte_size, plotting_options=plotting_options)
+    analyze(hdf5_file, request_byte_size=args.request_byte_size, plotting_options=plotting_options, cost_per_request=args.cost_per_request)
 
 if __name__ == "__main__":
     main()
