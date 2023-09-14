@@ -1,7 +1,7 @@
 # H5XRay
 Helping Python developers understand the structure and 'cloud-friendliness' of an HDF5 file. To best keep on top of updates, star/watch this repository.
 
-Inspired by the h5cloud project at the 2023 ICESat-2 Hackweek.
+A weekend project inspired by the h5cloud project at the 2023 ICESat-2 Hackweek.
 
 ## Installation
 To get started with H5XRay, you can easily install it using pip. 
