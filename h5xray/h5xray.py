@@ -133,7 +133,7 @@ def check_if_aws(verbose=False):
             print_system_info()
         return False
 
-def print_report(df, file_name, elapsed_time, request_size_bytes=2*1024*1024, cost_per_request=0.0004):
+def print_report(df, file_name, elapsed_time, request_size_bytes=2*1024*1024, cost_per_request=0.0004e-3):
     """
     Prints a report about the HDF5 file data and GET requests, including cost calculation per GET request.
     
@@ -142,7 +142,7 @@ def print_report(df, file_name, elapsed_time, request_size_bytes=2*1024*1024, co
         file_name (str): Name of the file.
         elapsed_time (float): Time taken to process the file.
         request_size_bytes (int): The size of each request in bytes.
-        cost_per_request (float): Cost per GET request (default: $0.0004 per request).
+        cost_per_request (float): Cost per GET request (default: $0.0004 per 1000 requests).
     """
     total_datasets = len(df)
     total_requests = df['requests_needed'].sum()
