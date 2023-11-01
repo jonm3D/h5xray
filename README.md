@@ -39,8 +39,8 @@ Report for data/atl03_4.h5:
 - Total datasets: 1020
 - Total requests: 1276.0
 - Request byte size: 2097152 bytes
-- Assumed cost per GET request: $0.0004
-- Total cost for file: $0.5104
+- Assumed cost per 1000 GET requests: $0.0004
+- Total cost for file: $0.0005104
 
 Top 5 datasets with most requests:
 1. /gt3r/heights/lat_ph - 14.0 requests | Chunking: (10000,) | Number of Chunks: [616.0]
