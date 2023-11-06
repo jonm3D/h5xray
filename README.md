@@ -27,9 +27,9 @@ H5xray provides visualization and reports of an HDF5 file structure/readability.
 
 ### Example Visualizations
 
-![Default Plot](img/barcode.png)
+![Default Plot](examples/img/barcode.png)
 
-![Options Plot](img/options_all.png)
+![Options Plot](examples/img/options_all.png)
 
 ### Example Report Contents
 
@@ -60,10 +60,10 @@ System Info:
 - Host Name: jupyter-jonm3d
 - Number of CPUs: 4
 
-## Interactive Tree Plot (In Progress)
-Currently only in the test notebook.
+## Interactive Tree Plot
+The package also includes an interactive plot for inspecting HDF5 files in a jupyter notebook.
 
-![Tree Plot](img/tree.png)
+![Tree Plot](examples/img/tree.gif)
 
 Made with ❤️ and ☕️ by:
 

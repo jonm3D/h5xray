@@ -18,25 +18,23 @@ def scale_to_range(arr, feature_range=(5, 20)):
     return scaled_data
 
 class H5Tree:
-    def __init__(self, filepath, max_depth=None, show_text=False, figure_size=(500, 800), export_path=None, group_path='/'):
+    def __init__(self, filepath, figure_size=(500, 800), group_path='/'):
         """
         Constructor for the H5XRay class.
 
         Args:
             filepath (str): Path to the HDF5 file to visualize.
             max_depth (int, optional): Maximum depth to visualize in the tree. If None, visualize entire tree.
-            show_text (bool, optional): Whether to display text labels on nodes in the graph.
             figure_size (tuple, optional): Dimensions for the output visualization (width, height).
         """
         self.filepath = filepath
         self.G = None
-        self.show_text = show_text
         self.figure_size = figure_size
         self.group_path = group_path
-        self.generate_igraph_tree(max_depth=max_depth, group_path=group_path)
+        self.generate_igraph_tree(group_path=group_path)
 
 
-    def hdf5_to_igraph_tree(self, group, parent_name='/', depth=0, max_depth=None):
+    def hdf5_to_igraph_tree(self, group, parent_name='/', depth=0):
         """
         Converts an HDF5 group into an igraph tree representation. Used for visualization.
 
@@ -44,14 +42,10 @@ class H5Tree:
             group (h5py.Group): The current HDF5 group.
             parent_name (str): The hierarchical name of the current group.
             depth (int): Current depth in the hierarchy.
-            max_depth (int, optional): Maximum depth for visualization.
         """
         if self.G is None:
             self.G = ig.Graph(directed=True)
             self.G.add_vertex(name=parent_name, label=parent_name.split('/')[-1] or '/')
-
-        if max_depth is not None and depth > max_depth:
-            return
 
         for key, item in group.items():
             vertex_name = f"{parent_name}/{key}" if parent_name != '/' else f"{parent_name}{key}"
@@ -67,16 +61,15 @@ class H5Tree:
             self.G.add_edge(parent_name, vertex_name)
 
             if isinstance(item, h5py.Group):
-                self.hdf5_to_igraph_tree(item, vertex_name, depth + 1, max_depth)
+                self.hdf5_to_igraph_tree(item, vertex_name, depth + 1)
 
 
-    def generate_igraph_tree(self, group_path='/', max_depth=None):
+    def generate_igraph_tree(self, group_path='/'):
         """
         Generates the igraph tree representation of the HDF5 file.
 
         Args:
             group_path (str): The path to the group within the HDF5 file. Must start with '/'.
-            max_depth (int, optional): Maximum depth for visualization.
         """
 
         assert isinstance(group_path, str) and group_path.startswith('/'), "group_path must be a string starting with '/'"
@@ -87,9 +80,9 @@ class H5Tree:
                 if group_path not in f:
                     raise ValueError(f"{group_path} is not a valid group in the HDF5 file.")
                 self.G = None
-                self.hdf5_to_igraph_tree(f[group_path], max_depth=max_depth)
+                self.hdf5_to_igraph_tree(f[group_path])
 
-    def create_plotly_figure(self):
+    def create_plotly_figure(self, figsize):
         """
         Create the Plotly figure for visualization.
 
@@ -160,8 +153,8 @@ class H5Tree:
 
         node_trace = go.Scatter(
             x=y, y=x,
-            mode='markers+text' if self.show_text else 'markers',
-            text=[v['label'] for v in self.G.vs] if self.show_text else None,
+            mode='markers',
+            text=[v['label'] for v in self.G.vs],
             hovertext=hover_texts,
             hoverinfo='text',
             marker=dict(
@@ -170,9 +163,10 @@ class H5Tree:
                 size=size_arr,
                 opacity=0.6,
                 line_width=0,
-            ))
-        
-        
+            )
+        )
+
+        title_text = f'h5xray-tree: {os.path.basename(self.filepath)}'
         
         if self.group_path == '/':
             title = f'h5xray-tree: {os.path.basename(self.filepath)}'
@@ -180,21 +174,45 @@ class H5Tree:
             title = f'h5xray-tree: {os.path.basename(self.filepath)} \n{self.group_path}'
 
         fig = go.Figure(data=[edge_trace, node_trace],
-                        layout=go.Layout(title=title,
-                                         showlegend=False, hovermode='closest',
-                                         width=self.figure_size[0], height=self.figure_size[1],
-                                         margin=dict(b=10, l=10, r=50, t=50),
-                                         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                                         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                                         plot_bgcolor='white', paper_bgcolor='white'))
-        
+                     layout=go.Layout(title=title_text,
+                                   showlegend=False,
+                                   hovermode='closest',
+                                   width=figsize[0],
+                                   height=figsize[1],
+                                   margin=dict(b=10, l=10, r=50, t=50),
+                                   xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                                   yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                                   plot_bgcolor='white',
+                                   paper_bgcolor='white',
+                                   updatemenus=[
+                                        dict(
+                                            type="buttons",
+                                            direction="left",
+                                            buttons=[
+                                                dict(
+                                                    args=[{'mode': 'markers'}, [1]],  # Update only node_trace
+                                                    label="Hide Labels",
+                                                    method="restyle"
+                                                ),
+                                                dict(
+                                                    args=[{'mode': 'markers+text'}, [1]],  # Update only node_trace
+                                                    label="Show Labels",
+                                                    method="restyle"
+                                                ),
+                                            ],
+                                            pad={"r": 10, "t": 10},
+                                            showactive=True,
+                                            x=0.05,
+                                            xanchor="left",
+                                            y=0.05,
+                                            yanchor="top"
+                                        ),
+                                    ]))
 
         return fig
 
 
-
-
-    def explore(self):
+    def explore(self, figsize=(600, 800)):
         """
         Visualizes the tree structure of the HDF5 file using Plotly.
 
@@ -204,9 +222,10 @@ class H5Tree:
         Raises:
             ValueError: If the graph data isn't available.
         """
-        fig = self.create_plotly_figure()  # Create the Plotly figure
+        fig = self.create_plotly_figure(figsize=figsize)  # Create the Plotly figure
 
-        return fig
+        fig.show(config={'displayModeBar': True, 'modeBarButtonsToRemove': ['lasso2d', 'select2d'], 'displaylogo': False})
+
 
     def wrap_text(self, text, max_len=50, indent="    "):  # using 4 spaces as indentation by default
         """
@@ -230,16 +249,11 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description="Visualize HDF5 file structures.")
     parser.add_argument("filepath", type=str, help="Path to the HDF5 file to visualize.")
-    parser.add_argument("--max_depth", type=int, default=None, help="Maximum depth to visualize in the tree.")
-    parser.add_argument("--show_text", type=bool, default=True, help="Whether to display text labels on nodes in the graph.")
     parser.add_argument("--figure_size", type=int, nargs=2, default=(1000, 1000), help="Dimensions for the output visualization (width, height).")
-    parser.add_argument("--export_path", type=str, default=None, help="The full path to the output image file, including filename and extension.")
     
     args = parser.parse_args()
 
-    tree = H5Tree(filepath=args.filepath, 
-                     max_depth=args.max_depth, 
-                     show_text=args.show_text, 
-                     figure_size=args.figure_size, 
-                     export_path=args.export_path)
+    tree = H5Tree(filepath=args.filepath)
+    
+    tree.explore(figsize=args.figure_size)
     
