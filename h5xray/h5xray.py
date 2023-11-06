@@ -27,22 +27,23 @@ For more detailed information on available arguments, run:
 """
 
 import argparse
+import logging
 import os
+import platform
+import socket
+import sys
+import time
+
 import h5py
-import pandas as pd
+import icepyx as ipx
 import matplotlib.pyplot as plt
 import numpy as np
-import seaborn as sns
-import platform
-import time
-import sys
-from PIL import Image, ImageDraw, ImageFont
-import s3fs
+import pandas as pd
 import requests
-import logging
-import socket
-import icepyx as ipx
+import s3fs
+import seaborn as sns
 from matplotlib.colors import Normalize
+from PIL import Image, ImageDraw, ImageFont
 
 
 def open_hdf5_file_from_s3(s3_url, earthdata_uid, earthdata_pwd):
@@ -135,9 +136,9 @@ def check_if_aws(verbose=False):
             print_system_info()
         return False
 
-def print_report(df, file_name, elapsed_time, request_size_bytes=2*1024*1024, cost_per_request=0.0004e-3):
+def print_report(df, file_name, elapsed_time, request_size_bytes=2*1024*1024, cost_per_request=0.0004e-3, as_str=False):
     """
-    Prints a report about the HDF5 file data and GET requests, including cost calculation per GET request.
+    Prints or returns a report about the HDF5 file data and GET requests, including cost calculation per GET request.
     
     Args:
         df (pd.DataFrame): DataFrame containing the extracted information.
@@ -145,33 +146,34 @@ def print_report(df, file_name, elapsed_time, request_size_bytes=2*1024*1024, co
         elapsed_time (float): Time taken to process the file.
         request_size_bytes (int): The size of each request in bytes.
         cost_per_request (float): Cost per GET request (default: $0.0004 per 1000 requests).
+        as_str (bool): If True, returns the report as a string; otherwise, prints the report (default: False).
+        
+    Returns:
+        str: The report as a string if as_str is True.
     """
+    report_lines = []
+    add_line = report_lines.append  # Shortcut function to add lines to the report
+
     total_datasets = len(df)
     total_requests = df['requests_needed'].sum()
+    total_cost = total_requests * cost_per_request  # Calculate the cost for GET requests
+    top_datasets = df.nlargest(5, 'requests_needed')  # Extracting top 5 datasets with most requests
     
-    # Calculate the cost for GET requests
-    total_cost = total_requests * cost_per_request
-
-    # Extracting top 5 datasets with most requests
-    top_datasets = df.nlargest(5, 'requests_needed')
-    
-    print(f"\nReport for {file_name}:")
-    print("-" * 50)
-    print(f"Total cost for file: ${total_cost:f}")
-    print(f"Elapsed time (s): {elapsed_time:.3f}")
-    print(f"Total datasets: {total_datasets}")
-    print(f"Total requests: {total_requests}")
-    print(f"Request byte size: {request_size_bytes} bytes")
-    print(f"Assumed cost per 1000 GET request: ${cost_per_request*1000:f}")
-    print("-" * 50)
-    print("Top 5 datasets with most requests:")
+    add_line(f"\nReport for {file_name}:")
+    add_line("-" * 50)
+    add_line(f"Total cost for file: ${total_cost:f}")
+    add_line(f"Elapsed time (s): {elapsed_time:.3f}")
+    add_line(f"Total datasets: {total_datasets}")
+    add_line(f"Total requests: {total_requests}")
+    add_line(f"Request byte size: {request_size_bytes} bytes")
+    add_line(f"Assumed cost per 1000 GET request: ${cost_per_request*1000:f}")
+    add_line("-" * 50)
+    add_line("Top 5 datasets with most requests:")
     for index, row in top_datasets.iterrows():
         chunk_info = f"Chunking: {row['chunking']} | Number of Chunks: {row['num_chunks']}" if row['chunking'] else "Contiguous"
-        print(f"{row['path']} - {row['requests_needed']} requests | {chunk_info}")
-    print("-" * 50)
+        add_line(f"{row['path']} - {row['requests_needed']} requests | {chunk_info}")
+    add_line("-" * 50)
     
-    # System information might be less relevant for decision-makers focused on costs and file processing details.
-    # They are kept at the end of the report.
     system_info = {
         "OS": os.name,
         "Platform": platform.system(),
@@ -183,11 +185,18 @@ def print_report(df, file_name, elapsed_time, request_size_bytes=2*1024*1024, co
         "Host Name": platform.node(),
         "Number of CPUs": os.cpu_count()
     }
-    print("System Info:")
+    add_line("System Info:")
     for key, value in system_info.items():
-        print(f"{key}: {value}")
-    print("-" * 50)
-    print("\n")
+        add_line(f"{key}: {value}")
+    add_line("-" * 50)
+    
+    report_str = "\n".join(report_lines)
+    
+    if as_str:
+        return report_str
+    else:
+        print(report_str)
+
 
 def extract_dataset_info(data_file, path='/', request_size_bytes=2*1024 * 1024):
     results = []
@@ -262,17 +271,17 @@ def plot_dataframe(df, request_byte_size, plotting_options={}):
     df['norm_requests'] = df['requests_needed'].apply(lambda x: min(x, max_requests) / max_requests)
     df['color'] = df['norm_requests'].apply(lambda x: cmap(x))
 
-    plt.figure(figsize=figsize)
+    fig, ax = plt.subplots(figsize=figsize)  # Create a figure and a set of subplots
     stacked_value = 0 
 
     edge_color = plotting_options.get('edge_color', 'black' if debug else None)
     linewidth = plotting_options.get('linewidth', 0.05 if debug else 0)
     
     for index, row in df.iterrows():
-        plt.barh('Combined', row['bytes'], left=stacked_value, color=row['color'], edgecolor=edge_color, linewidth=linewidth)
+        ax.barh('Combined', row['bytes'], left=stacked_value, color=row['color'], edgecolor=edge_color, linewidth=linewidth)
         if debug and row['bytes'] > byte_threshold:
             chunk_center = stacked_value + row['bytes'] / 2
-            plt.text(chunk_center, 'Combined', row['name'], ha='center', va='center', color='black', fontsize=font_size, rotation=90)
+            ax.text(chunk_center, 'Combined', row['name'], ha='center', va='center', color='black', fontsize=font_size, rotation=90)
         stacked_value += row['bytes']
 
     # Instead of your current colorbar setup, we'll do this:
@@ -282,12 +291,12 @@ def plot_dataframe(df, request_byte_size, plotting_options={}):
         sm.set_array([])  # This line is the key to link the mappable with the colorbar.
         cb = plt.colorbar(sm, orientation='vertical', ax=plt.gca())
         cb.set_label(f'{request_byte_size/1024**2:.0f} MiB Requests', rotation=270, labelpad=15)
-        plt.xticks([])  
-        plt.yticks([])
-        plt.grid(True, axis='x', linestyle='--', linewidth=0.5, alpha=0.5)
-        plt.title(f"H5XRAY - {title} - Total Size: {stacked_value / (1024**2):.2f} MiB")
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.grid(True, axis='x', linestyle='--', linewidth=0.5, alpha=0.5)
+        ax.set_title(f"H5XRAY - {title} - Total Size: {stacked_value / (1024**2):.2f} MiB")
     else:
-        plt.axis('off')
+        ax.axis('off')
 
     plt.tight_layout()
 
@@ -300,8 +309,10 @@ def plot_dataframe(df, request_byte_size, plotting_options={}):
         except Exception as e:
             print(f"Error displaying plot: {e}")
 
+    return fig 
+
 def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, report=True, cost_per_request=0.0004e-3,
-            aws_access_key=None, aws_secret_key=None):
+            aws_access_key=None, aws_secret_key=None, report_type='print'):
     """
     Main function for plotting / reporting details of an HDF5 file.
 
@@ -317,6 +328,14 @@ def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, repo
     Returns:
         None
     """
+
+    # report as str or printed
+    if report_type == 'str':
+        as_str = True
+    elif report_type == 'print':
+        as_str = False
+    else:
+        print('unknown report type')
 
     # Check if the input file is an S3 URL
     is_s3_url = input_file.startswith("s3://")
@@ -348,9 +367,10 @@ def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, repo
         plotting_options['title'] = file_name
 
     if report:
-        print_report(df, input_file, elapsed_time, request_byte_size, cost_per_request)
+        report_str = print_report(df, input_file, elapsed_time, request_byte_size, cost_per_request, as_str=as_str)
 
-    plot_dataframe(df, request_byte_size, plotting_options)
+    fig = plot_dataframe(df, request_byte_size, plotting_options)
+    
+    return fig, report_str
 
-if __name__ == "__main__":
-    main()
+
