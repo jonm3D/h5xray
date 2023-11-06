@@ -3,7 +3,7 @@ Helping Python developers understand the structure and 'cloud-friendliness' of a
 
 A weekend project inspired by the h5cloud project at the 2023 ICESat-2 Hackweek.
 
-Don't want to fuss with code? Try the [web app version (via Huggingface Spaces](https://huggingface.co/spaces/jonm3d/h5xray-app).
+Don't want to fuss with code? Try the [web app version (via Huggingface Spaces)](https://huggingface.co/spaces/jonm3d/h5xray-app).
 ## Installation
 To get started with H5XRay, you can easily install it using pip. 
 
