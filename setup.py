@@ -2,23 +2,27 @@ from setuptools import setup, find_packages
 
 setup(
     name="h5xray",
-    version="0.1.0",
+    version="0.1.1",
     packages=find_packages(),
     install_requires=[
         "matplotlib",
         "h5py",
         "pandas",
         "seaborn",
-        "Pillow",
-        "python-igraph",
-        "kaleido"
+        "Pillow", 
+        "s3fs",
+        "requests",
+        "icepyx",
+        "scikit-learn",
+        "plotly",
     ],
     extras_require={
         "optional": ["python-igraph", "kaleido"]
     },
     entry_points={
         'console_scripts': [
-            'h5xray = h5xray.h5xray:main',
+            'h5xray=h5xray.h5xray:main',
+            'h5xray-interactive=h5xray.interactive:main',
         ],
     },
     description="HDF5 File Visualizer",
@@ -39,4 +43,5 @@ setup(
         "Topic :: Scientific/Engineering",
         "Topic :: Utilities"
     ],
+    python_requires='>=3.7',  # Set the minimum Python version required for your package
 )

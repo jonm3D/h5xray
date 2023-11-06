@@ -42,6 +42,8 @@ import requests
 import logging
 import socket
 import icepyx as ipx
+from matplotlib.colors import Normalize
+
 
 def open_hdf5_file_from_s3(s3_url, earthdata_uid, earthdata_pwd):
     """
@@ -155,12 +157,12 @@ def print_report(df, file_name, elapsed_time, request_size_bytes=2*1024*1024, co
     
     print(f"\nReport for {file_name}:")
     print("-" * 50)
-    print(f"Total cost for file: ${total_cost:.4f}")
+    print(f"Total cost for file: ${total_cost:f}")
     print(f"Elapsed time (s): {elapsed_time:.3f}")
     print(f"Total datasets: {total_datasets}")
     print(f"Total requests: {total_requests}")
     print(f"Request byte size: {request_size_bytes} bytes")
-    print(f"Assumed cost per GET request: ${cost_per_request:.4f}")
+    print(f"Assumed cost per 1000 GET request: ${cost_per_request*1000:f}")
     print("-" * 50)
     print("Top 5 datasets with most requests:")
     for index, row in top_datasets.iterrows():
@@ -273,17 +275,20 @@ def plot_dataframe(df, request_byte_size, plotting_options={}):
             plt.text(chunk_center, 'Combined', row['name'], ha='center', va='center', color='black', fontsize=font_size, rotation=90)
         stacked_value += row['bytes']
 
+    # Instead of your current colorbar setup, we'll do this:
     if debug:
-        sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=0, vmax=max_requests))
-        sm.set_array([])
-        plt.colorbar(sm).set_label(f'{request_byte_size/1024**2:.0f} MiB Requests', rotation=270, labelpad=15)
+        norm = Normalize(vmin=0, vmax=max_requests)
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])  # This line is the key to link the mappable with the colorbar.
+        cb = plt.colorbar(sm, orientation='vertical', ax=plt.gca())
+        cb.set_label(f'{request_byte_size/1024**2:.0f} MiB Requests', rotation=270, labelpad=15)
         plt.xticks([])  
         plt.yticks([])
         plt.grid(True, axis='x', linestyle='--', linewidth=0.5, alpha=0.5)
         plt.title(f"H5XRAY - {title} - Total Size: {stacked_value / (1024**2):.2f} MiB")
     else:
         plt.axis('off')
-    
+
     plt.tight_layout()
 
     if output_file:
@@ -295,7 +300,7 @@ def plot_dataframe(df, request_byte_size, plotting_options={}):
         except Exception as e:
             print(f"Error displaying plot: {e}")
 
-def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, report=True, cost_per_request=0.0004,
+def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, report=True, cost_per_request=0.0004e-3,
             aws_access_key=None, aws_secret_key=None):
     """
     Main function for plotting / reporting details of an HDF5 file.
@@ -305,7 +310,7 @@ def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, repo
         request_byte_size (int): The size of each request in bytes. Default is 2MiB (2*1024*1024 bytes).
         plotting_options (dict): A dictionary of plotting options.
         report (bool): Whether to print a report about the HDF5 file. Default is True.
-        cost_per_request (float): Cost per GET request (default: $0.0004 per request).
+        cost_per_request (float): Cost per GET request (default: $0.0004 per 1000 requests).
         aws_access_key (str, optional): AWS access key for S3 URLs.
         aws_secret_key (str, optional): AWS secret key for S3 URLs.
 
