@@ -311,7 +311,7 @@ def plot_dataframe(df, request_byte_size, plotting_options={}):
 
     return fig 
 
-def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, report=True, cost_per_request=0.0004e-3,
+def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, cost_per_request=0.0004e-3,
             aws_access_key=None, aws_secret_key=None, report_type='print'):
     """
     Main function for plotting / reporting details of an HDF5 file.
@@ -332,9 +332,12 @@ def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, repo
     # report as str or printed
     if report_type == 'str':
         as_str = True
+        report=True
     elif report_type == 'print':
         as_str = False
+        report=True
     else:
+        report=False
         print('unknown report type')
 
     # Check if the input file is an S3 URL
@@ -368,6 +371,8 @@ def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, repo
 
     if report:
         report_str = print_report(df, input_file, elapsed_time, request_byte_size, cost_per_request, as_str=as_str)
+    else:
+        report_str=None
 
     fig = plot_dataframe(df, request_byte_size, plotting_options)
     
