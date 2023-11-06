@@ -63,7 +63,7 @@ System Info:
 ## Interactive Tree Plot
 The package also includes an interactive plot for inspecting HDF5 files in a jupyter notebook.
 
-![Tree Plot](examples/img/tree.gif)
+<img src="examples/img/tree.gif" width="600" />
 
 Made with ❤️ and ☕️ by:
 
