@@ -23,7 +23,7 @@ pip install --upgrade git+https://github.com/jonm3d/h5xray.git
 h5xray /path/to/your/inputfile.h5
 ```
 
-H5xray provides visualization and reports of an HDF5 file structure/readability. See demo.ipynb for more detailed usage examples, inluding reading local files or from S3.
+H5xray provides visualization and reports of an HDF5 file structure/readability. See the examples directory for more detailed usage, inluding reading local files or from S3.
 
 ### Example Visualizations
 
