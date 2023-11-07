@@ -176,13 +176,11 @@ class H5Tree:
             if file_name:
                 title_text = f'h5xray-tree: {os.path.basename(file_name)}'
             else :
-                print('asnadvjnsdvsd')
                 title_text = f'h5xray-tree: {os.path.basename(self.filepath)} \n{self.group_path}'
         else:
             if file_name:
                 title_text = f'h5xray-tree: {os.path.basename(file_name)} \n{self.group_path}'
             else :
-                print('anvadovinsdvosdv')
                 title_text = f'h5xray-tree: {os.path.basename(self.filepath)} \n{self.group_path}'
 
         fig = go.Figure(data=[edge_trace, node_trace],
