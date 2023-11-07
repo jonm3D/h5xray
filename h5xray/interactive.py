@@ -158,6 +158,7 @@ class H5Tree:
             text=[v['label'] for v in self.G.vs],
             hovertext=hover_texts,
             hoverinfo='text',
+            hoverlabel=dict(align='left'),
             marker=dict(
                 showscale=False,
                 color=[color_palette[v['depth'] + 1 if v['depth'] is not None else 0] for v in self.G.vs],
