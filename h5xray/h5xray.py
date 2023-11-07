@@ -41,7 +41,7 @@ import pandas as pd
 import requests
 import s3fs
 import seaborn as sns
-from matplotlib.colors import Normalize
+from matplotlib.colors import LinearSegmentedColormap, Normalize
 from PIL import Image, ImageDraw, ImageFont
 
 
@@ -161,7 +161,7 @@ def print_report(df, file_name, elapsed_time, request_size_bytes=2*1024*1024,
         f"Data Summary:",
         f"  - Total datasets: {len(df)}",
         f"  - Total requests: {df['requests_needed'].sum()}",
-        f"  - Request byte size: {request_size_bytes} bytes",
+        f"  - Request byte size: {request_size_bytes/(1024**2)} MiB",
         f"Cost Analysis:",
         f"  - Assumed cost per 1,000 GET requests: ${cost_per_request*1000:.10f}",
         f"  - Total cost for file: ${df['requests_needed'].sum() * cost_per_request:.10f}",
@@ -200,6 +200,27 @@ def print_report(df, file_name, elapsed_time, request_size_bytes=2*1024*1024,
 
 
 def extract_dataset_info(data_file, path='/', request_size_bytes=2*1024 * 1024):
+    """
+    Extracts information about datasets within an H5 file.
+
+    This function traverses the groups and datasets starting from the specified path
+    within the H5 file. It collects information on datasets including the path,
+    size, chunking, and the number of requests needed to read the dataset based on 
+    a specified request size.
+
+    Parameters:
+    - data_file (h5py.File): An opened H5 file object.
+    - path (str): The starting path within the H5 file from which to begin extraction.
+    - request_size_bytes (int): The size in bytes of a single read request, used to 
+                                calculate the number of requests needed for each dataset.
+
+    Returns:
+    - List[Dict[str, Any]]: A list of dictionaries, where each dictionary contains 
+                             information about a dataset. Keys include 'top', 'name', 
+                             'path', 'type', 'chunking', 'num_chunks', 'bytes', 
+                             'attributes', and 'requests_needed'.
+
+    """
     results = []
     
     # Helper function to compute the number of chunks for a dataset.
@@ -234,16 +255,38 @@ def extract_dataset_info(data_file, path='/', request_size_bytes=2*1024 * 1024):
     
     return results
 
-
 def plot_dataframe(df, plotting_options={}):
-    cmap = plotting_options.get('cmap', plt.cm.coolwarm)
+    """
+    Plots a barcode-style visualization indicating how many requests are needed per dataset for an H5 file.
+
+    Parameters:
+    - df (DataFrame): A pandas DataFrame with at least 'bytes' and 'requests_needed' columns.
+    - plotting_options (dict, optional): A dictionary containing options for plot customization such as:
+      - cmap: The colormap for the plot.
+      - font_size: The font size for the text labels.
+      - debug: If True, will print additional plot details and a colorbar.
+      - label_top_n: The number of top segments to label.
+      - figsize: A tuple defining the figure size.
+      - output_file: Path to save the plot image.
+      - title: The title of the plot.
+      - edge_color: The color of the edges of the bars.
+      - linewidth: The width of the edges of the bars.
+
+    Returns:
+    - fig: The matplotlib figure object for the plot.
+    """
+
+    cmap = plotting_options.get('cmap', plt.cm.YlOrRd)
     font_size = plotting_options.get('font_size', 7)
     debug = plotting_options.get('debug', False)
     label_top_n = plotting_options.get('label_top_n', 10)  # Number of top segments to label
+    
+    # Determine the bounds for normalization
+    requests_min = 0
 
-    # Determine the maximum byte size in the DataFrame for normalization
-    max_byte_size = df['bytes'].max()
-
+    # Color up to 5 requests so small files dont appear all red
+    requests_max = np.max([ 5, np.ceil(df['requests_needed'].max())])
+    
     if 'figsize' in plotting_options:
         figsize = plotting_options['figsize']
     elif debug:
@@ -254,37 +297,35 @@ def plot_dataframe(df, plotting_options={}):
     output_file = plotting_options.get('output_file', None)
     title = plotting_options.get('title', None)
 
-    # Normalize request sizes based on the maximum byte size
-    df['norm_requests'] = df['bytes'] / max_byte_size
-    df['color'] = df['norm_requests'].apply(lambda x: cmap(x))
+    if debug:
+        print(df.columns)
 
-    fig, ax = plt.subplots(figsize=figsize)  # Create a figure and a set of subplots
+    fig, ax = plt.subplots(figsize=figsize)
     stacked_value = 0
 
     edge_color = plotting_options.get('edge_color', 'black' if debug else None)
     linewidth = plotting_options.get('linewidth', 0.05 if debug else 0)
 
-    # Calculate indices of the top segments by sorted bytes
     top_segments_idx = df['bytes'].nlargest(label_top_n).index
 
-    # Iterate through the DataFrame and plot each segment
+    norm = Normalize(vmin=requests_min, vmax=requests_max)
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+
     for index, row in df.iterrows():
-        ax.barh('Combined', row['bytes'], left=stacked_value, color=row['color'], edgecolor=edge_color, linewidth=linewidth)
-        
-        # Label the top N segments using the indices calculated above
+        color = sm.to_rgba(row['requests_needed'])
+
+        ax.barh('Combined', row['bytes'], left=stacked_value, color=color, edgecolor=edge_color, linewidth=linewidth)
+
         if index in top_segments_idx:
             chunk_center = stacked_value + row['bytes'] / 2
             ax.text(chunk_center, 'Combined', row['name'], ha='center', va='center', color='black', fontsize=font_size, rotation=90)
-        
+
         stacked_value += row['bytes']
 
-    # Colorbar and other settings if debug is True
     if debug:
-        norm = Normalize(vmin=0, vmax=1)  # Normalized between 0 and 1
-        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-        sm.set_array([])
         cb = plt.colorbar(sm, orientation='vertical', ax=ax)
-        cb.set_label(f'Max Byte Size: {max_byte_size/1024**2:.2f} MiB', rotation=270, labelpad=15)
+        cb.set_label('Requests Needed', rotation=270, labelpad=15)
         ax.set_xticks([])
         ax.set_yticks([])
         ax.grid(True, axis='x', linestyle='--', linewidth=0.5, alpha=0.5)
@@ -294,7 +335,6 @@ def plot_dataframe(df, plotting_options={}):
 
     plt.tight_layout()
 
-    # Save or show the plot
     if output_file:
         plt.savefig(output_file, bbox_inches='tight', dpi=300)
         print(f"Plot saved to {output_file}")
@@ -305,6 +345,7 @@ def plot_dataframe(df, plotting_options={}):
             print(f"Error displaying plot: {e}")
 
     return fig
+
 
 
 def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, report=True, cost_per_request=0.0004e-3,
