@@ -36,6 +36,7 @@ import time
 import h5py
 import icepyx as ipx
 import matplotlib.pyplot as plt
+import netCDF4 as nc
 import numpy as np
 import pandas as pd
 import requests
@@ -81,6 +82,19 @@ def parse_s3_url(s3_url):
     bucket_name = parts[0]
     key = '/'.join(parts[1:])
     return bucket_name, key
+
+# Add the open_netcdf_file helper function
+def open_netcdf_file(file_path):
+    """
+    Opens a local NetCDF file.
+
+    Args:
+        file_path (str): The file path of the NetCDF file.
+
+    Returns:
+        netCDF4.Dataset: The opened NetCDF file.
+    """
+    return nc.Dataset(file_path, "r")
 
 def check_if_aws(verbose=False):
     """Check if we're running on an AWS EC2 instance and optionally print details."""
@@ -197,6 +211,58 @@ def print_report(df, file_name, elapsed_time, request_size_bytes=2*1024*1024,
         return report_str
     else:
         print(report_str)
+
+def extract_dataset_info_nc(data_file, path='/', request_size_bytes=2*1024 * 1024):
+    """
+    Extracts information about variables within a NetCDF file.
+
+    This function traverses the variables starting from the specified path within
+    the NetCDF file. It collects information on variables including the name, size,
+    chunking, and the number of requests needed to read the variable based on a 
+    specified request size.
+
+    Parameters:
+    - data_file (netCDF4.Dataset): An opened NetCDF dataset object.
+    - path (str): The starting path within the NetCDF file from which to begin extraction.
+                  For NetCDF, this is often just '/', since it doesn't support hierarchical groups like HDF5.
+    - request_size_bytes (int): The size in bytes of a single read request, used to 
+                                calculate the number of requests needed for each variable.
+
+    Returns:
+    - List[Dict[str, Any]]: A list of dictionaries, where each dictionary contains 
+                             information about a variable. Keys include 'name', 'size', 
+                             'chunking', 'num_chunks', 'bytes', 'attributes', and 
+                             'requests_needed'.
+
+    """
+    results = []
+    
+    # Helper function to compute the number of chunks for a variable.
+    def compute_num_chunks(variable_shape, chunk_sizes):
+        return [np.ceil(sh/ch) if ch else 1 for sh, ch in zip(variable_shape, chunk_sizes)]
+
+    # Helper function to compute the number of requests needed for a variable.
+    def compute_requests_needed(byte_size, request_size_bytes):
+        return np.ceil(byte_size / request_size_bytes)
+
+    # Loop through all variables in the NetCDF dataset
+    for name, variable in data_file.variables.items():
+        chunk_sizes = variable.chunking()
+        chunk_sizes = chunk_sizes if chunk_sizes != 'contiguous' else variable.shape
+        byte_size = variable.nbytes
+        
+        variable_info = {
+            'name': name,
+            'size': variable.size,
+            'chunking': chunk_sizes,
+            'num_chunks': compute_num_chunks(variable.shape, chunk_sizes),
+            'bytes': byte_size,
+            'attributes': dict(variable.__dict__),
+            'requests_needed': compute_requests_needed(byte_size, request_size_bytes)
+        }
+        results.append(variable_info)
+    
+    return results
 
 
 def extract_dataset_info(data_file, path='/', request_size_bytes=2*1024 * 1024):
@@ -346,72 +412,102 @@ def plot_dataframe(df, plotting_options={}):
 
     return fig
 
-
-
-def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, report=True, cost_per_request=0.0004e-3,
-            aws_access_key=None, aws_secret_key=None, report_type='print'):
+def open_hdf5_file_from_s3(s3_url, earthdata_uid, earthdata_pwd):
     """
-    Main function for plotting / reporting details of an HDF5 file.
+    Opens an HDF5 file from S3 using Earthdata credentials.
 
     Args:
-        input_file (str): Path to the input HDF5 file or S3 URL.
+        s3_url (str): The S3 URL of the HDF5 file.
+        earthdata_uid (str): Earthdata username.
+        earthdata_pwd (str): Earthdata password.
+
+    Returns:
+        h5py.File: The opened HDF5 file.
+    """
+    reg = ipx.Query('ATL03', [-45, 58, -35, 75], ['2019-11-30', '2019-11-30'])
+    reg.earthdata_login(earthdata_uid, earthdata_pwd, s3token=True)
+    s3 = s3fs.S3FileSystem(
+        key=reg._s3login_credentials['accessKeyId'],
+        secret=reg._s3login_credentials['secretAccessKey'],
+        token=reg._s3login_credentials['sessionToken']
+    )
+    s3f = s3.open(s3_url, 'rb')
+    return h5py.File(s3f, 'r')
+
+def open_hdf5_file_local(file_path):
+    """
+    Opens a local HDF5 file.
+
+    Args:
+        file_path (str): The file path of the HDF5 file.
+
+    Returns:
+        h5py.File: The opened HDF5 file.
+    """
+    return h5py.File(file_path, "r")
+
+def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, report=True, 
+            cost_per_request=0.0004e-3, aws_access_key=None, aws_secret_key=None, report_type='print'):
+    """
+    Main function for plotting / reporting details of an HDF5 or NetCDF file.
+
+    Args:
+        input_file (str): Path to the input HDF5 or NetCDF file or S3 URL.
         request_byte_size (int): The size of each request in bytes. Default is 2MiB (2*1024*1024 bytes).
         plotting_options (dict): A dictionary of plotting options.
-        report (bool): Whether to print a report about the HDF5 file. Default is True.
+        report (bool): Whether to print a report about the HDF5 or NetCDF file. Default is True.
         cost_per_request (float): Cost per GET request (default: $0.0004 per 1000 requests).
         aws_access_key (str, optional): AWS access key for S3 URLs.
         aws_secret_key (str, optional): AWS secret key for S3 URLs.
+        report_type (str): Format of the report output, either 'str' for string or 'print' to print directly.
 
     Returns:
-        None
+        matplotlib.figure.Figure: The figure object of the plot, if applicable.
+        str: The report string, if report is True and report_type is 'str'.
     """
 
-    # report as str or printed
-    if report_type == 'str':
-        as_str = True
-    elif report_type == 'print':
-        as_str = False
-    else:
-        print('unknown report type')
+    as_str = report_type == 'str'
+    report_str = None
 
     # Check if the input file is an S3 URL
     is_s3_url = input_file.startswith("s3://")
 
-    # Try to open the HDF5 file and handle potential errors
     try:
+        start_time = time.time()
+
+        # Context management ensures files are closed after processing
         if is_s3_url:
-            hdf5_file = open_hdf5_file_from_s3(input_file, aws_access_key, aws_secret_key)
-            if hdf5_file is None:
-                raise ValueError("Error reading the HDF5 file from S3.")
-            start_time = time.time()
-            file_info = extract_dataset_info(hdf5_file, request_size_bytes=request_byte_size)
-            end_time = time.time()
-            hdf5_file.close()  # Make sure to close the file if opened from S3
+            # S3 URL case: handle AWS or Earthdata S3 access as before
+            with open_hdf5_file_from_s3(input_file, aws_access_key, aws_secret_key) as data_file:
+                data_info = extract_dataset_info(data_file, request_size_bytes=request_byte_size)
         else:
-            with h5py.File(input_file, "r") as hdf5_file:
-                start_time = time.time()
-                file_info = extract_dataset_info(hdf5_file, request_size_bytes=request_byte_size)
-                end_time = time.time()
-
-        elapsed_time = end_time - start_time
-        df = pd.DataFrame(file_info)
+            # Local file case: Determine if it's HDF5 or NetCDF based on file extension
+            file_extension = os.path.splitext(input_file)[1]
+            if file_extension in ['.h5', '.hdf5']:
+                with open_hdf5_file_local(input_file) as data_file:
+                    data_info = extract_dataset_info(data_file, request_size_bytes=request_byte_size)
+            elif file_extension in ['.nc', '.netcdf']:
+                with open_netcdf_file(input_file) as data_file:
+                    # Here we would call a function similar to 'extract_dataset_info'
+                    # specifically designed for NetCDF files, which would need to be implemented.
+                    data_info = extract_dataset_info_nc(data_file, request_size_bytes=request_byte_size)
+            else:
+                raise ValueError("Unsupported file format.")
         
-    except OSError as e:
-        raise OSError(f"Error reading the HDF5 file: {e}")
+        df = pd.DataFrame(data_info)
+        elapsed_time = time.time() - start_time
+        
+        if report:
+            report_str = print_report(df, os.path.basename(input_file), elapsed_time, 
+                                      request_size_bytes=request_byte_size, 
+                                      cost_per_request=cost_per_request, as_str=as_str)
+        
+        fig = None
+        if plotting_options:
+            fig = plot_dataframe(df, plotting_options)
 
-    # Update the title in the plotting options
-    if 'title' not in plotting_options:
-        file_name = os.path.splitext(os.path.basename(input_file))[0]  # Get the original filename without extension
-        plotting_options['title'] = file_name
+        return fig, report_str if as_str else None
 
-    if 'label_top_n' not in plotting_options:
-        plotting_options['label_top_n'] = 10
-
-    if report:
-        report_str = print_report(df, input_file, elapsed_time, request_byte_size, cost_per_request, as_str=as_str)
-
-    fig = plot_dataframe(df, plotting_options)
-    
-    return fig, report_str
-
-
+    except Exception as e:
+        print(f"Error in analyzing the file: {e}")
+        return None, None
