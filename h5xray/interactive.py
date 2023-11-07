@@ -154,7 +154,7 @@ class H5Tree:
 
         node_trace = go.Scatter(
             x=y, y=x,
-            mode='markers+text',  # include text mode to show labels
+            mode='markers',  # include text mode to show labels
             text=[v['label'] for v in self.G.vs],
             hovertext=hover_texts,
             hoverinfo='text',
