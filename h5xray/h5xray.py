@@ -424,7 +424,6 @@ def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, repo
         elapsed_time = time.time() - start_time
         
         if report:
-
             report_str = print_report(df, os.path.basename(input_file), elapsed_time, 
                                       request_size_bytes=request_byte_size, 
                                       cost_per_request=cost_per_request, as_str=as_str)
