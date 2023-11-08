@@ -83,19 +83,6 @@ def parse_s3_url(s3_url):
     key = '/'.join(parts[1:])
     return bucket_name, key
 
-# Add the open_netcdf_file helper function
-def open_netcdf_file(file_path):
-    """
-    Opens a local NetCDF file.
-
-    Args:
-        file_path (str): The file path of the NetCDF file.
-
-    Returns:
-        netCDF4.Dataset: The opened NetCDF file.
-    """
-    return nc.Dataset(file_path, "r")
-
 def check_if_aws(verbose=False):
     """Check if we're running on an AWS EC2 instance and optionally print details."""
     metadata_url = "http://169.254.169.254/latest/meta-data/"
@@ -212,57 +199,18 @@ def print_report(df, file_name, elapsed_time, request_size_bytes=2*1024*1024,
     else:
         print(report_str)
 
-def extract_dataset_info_nc(data_file, path='/', request_size_bytes=2*1024 * 1024):
+# Add the open_netcdf_file helper function
+def open_netcdf_file(file_path):
     """
-    Extracts information about variables within a NetCDF file.
+    Opens a local NetCDF file.
 
-    This function traverses the variables starting from the specified path within
-    the NetCDF file. It collects information on variables including the name, size,
-    chunking, and the number of requests needed to read the variable based on a 
-    specified request size.
-
-    Parameters:
-    - data_file (netCDF4.Dataset): An opened NetCDF dataset object.
-    - path (str): The starting path within the NetCDF file from which to begin extraction.
-                  For NetCDF, this is often just '/', since it doesn't support hierarchical groups like HDF5.
-    - request_size_bytes (int): The size in bytes of a single read request, used to 
-                                calculate the number of requests needed for each variable.
+    Args:
+        file_path (str): The file path of the NetCDF file.
 
     Returns:
-    - List[Dict[str, Any]]: A list of dictionaries, where each dictionary contains 
-                             information about a variable. Keys include 'name', 'size', 
-                             'chunking', 'num_chunks', 'bytes', 'attributes', and 
-                             'requests_needed'.
-
+        netCDF4.Dataset: The opened NetCDF file.
     """
-    results = []
-    
-    # Helper function to compute the number of chunks for a variable.
-    def compute_num_chunks(variable_shape, chunk_sizes):
-        return [np.ceil(sh/ch) if ch else 1 for sh, ch in zip(variable_shape, chunk_sizes)]
-
-    # Helper function to compute the number of requests needed for a variable.
-    def compute_requests_needed(byte_size, request_size_bytes):
-        return np.ceil(byte_size / request_size_bytes)
-
-    # Loop through all variables in the NetCDF dataset
-    for name, variable in data_file.variables.items():
-        chunk_sizes = variable.chunking()
-        chunk_sizes = chunk_sizes if chunk_sizes != 'contiguous' else variable.shape
-        byte_size = variable.nbytes
-        
-        variable_info = {
-            'name': name,
-            'size': variable.size,
-            'chunking': chunk_sizes,
-            'num_chunks': compute_num_chunks(variable.shape, chunk_sizes),
-            'bytes': byte_size,
-            'attributes': dict(variable.__dict__),
-            'requests_needed': compute_requests_needed(byte_size, request_size_bytes)
-        }
-        results.append(variable_info)
-    
-    return results
+    return nc.Dataset(file_path, "r")
 
 
 def extract_dataset_info(data_file, path='/', request_size_bytes=2*1024 * 1024):
@@ -301,8 +249,10 @@ def extract_dataset_info(data_file, path='/', request_size_bytes=2*1024 * 1024):
         current_path = f"{path}/{name}" if path != '/' else f"/{name}"
         
         if isinstance(item, h5py.Group):
+            print('group!', current_path, item)
             results.extend(extract_dataset_info(data_file, current_path, request_size_bytes))
         elif isinstance(item, h5py.Dataset):
+            print('dataset!', current_path, item)
             chunk_shape = item.chunks
             num_chunks = compute_num_chunks(item.shape, chunk_shape) if chunk_shape else None
             
@@ -446,7 +396,7 @@ def open_hdf5_file_local(file_path):
     """
     return h5py.File(file_path, "r")
 
-def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, report=True, 
+def analyze(input_file, request_byte_size=2*1024*1024, plotting_options=None, report=True, 
             cost_per_request=0.0004e-3, aws_access_key=None, aws_secret_key=None, report_type='print'):
     """
     Main function for plotting / reporting details of an HDF5 or NetCDF file.
@@ -474,37 +424,31 @@ def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, repo
 
     try:
         start_time = time.time()
-
+        print('~')
         # Context management ensures files are closed after processing
         if is_s3_url:
             # S3 URL case: handle AWS or Earthdata S3 access as before
             with open_hdf5_file_from_s3(input_file, aws_access_key, aws_secret_key) as data_file:
                 data_info = extract_dataset_info(data_file, request_size_bytes=request_byte_size)
         else:
-            # Local file case: Determine if it's HDF5 or NetCDF based on file extension
-            file_extension = os.path.splitext(input_file)[1]
-            if file_extension in ['.h5', '.hdf5']:
-                with open_hdf5_file_local(input_file) as data_file:
-                    data_info = extract_dataset_info(data_file, request_size_bytes=request_byte_size)
-            elif file_extension in ['.nc', '.netcdf']:
-                with open_netcdf_file(input_file) as data_file:
-                    # Here we would call a function similar to 'extract_dataset_info'
-                    # specifically designed for NetCDF files, which would need to be implemented.
-                    data_info = extract_dataset_info_nc(data_file, request_size_bytes=request_byte_size)
-            else:
-                raise ValueError("Unsupported file format.")
-        
+            # file_extension = os.path.splitext(input_file)[1]
+            with open_hdf5_file_local(input_file) as data_file:
+                data_info = extract_dataset_info(data_file, request_size_bytes=request_byte_size)
+                print(data_info)
+
+        print('~')
         df = pd.DataFrame(data_info)
+        print(df)
         elapsed_time = time.time() - start_time
         
         if report:
+            print('report df')
+            print(df.head())
             report_str = print_report(df, os.path.basename(input_file), elapsed_time, 
                                       request_size_bytes=request_byte_size, 
                                       cost_per_request=cost_per_request, as_str=as_str)
-        
-        fig = None
-        if plotting_options:
-            fig = plot_dataframe(df, plotting_options)
+                
+        fig = plot_dataframe(df, plotting_options)
 
         return fig, report_str if as_str else None
 
