@@ -17,7 +17,6 @@ Arguments:
     - --output_file OUTPUT_FILE_PATH: The path where the generated image should be saved.
     - --annotate: Flag to include dataset names on the plot. Default is False.
     - --font_size: Size of the font for annotations on the plot. Default is 7.
-    - --byte_threshold: Minimum bytes required for a dataset to get annotated. Default is 2 MiB (2 * 1024 * 1024 bytes).
     - --title: Custom title for the plot. If not specified, the name of the input file will be used.
     - --orientation: Orientation of the plot ('vertical' or 'horizontal'). Default is 'vertical'.
     - --figsize: Size of the figure for the plot specified as width,height (e.g., 10,3). Default is 6,2.
@@ -42,7 +41,7 @@ import pandas as pd
 import requests
 import s3fs
 import seaborn as sns
-from matplotlib.colors import Normalize
+from matplotlib.colors import LinearSegmentedColormap, Normalize
 from PIL import Image, ImageDraw, ImageFont
 
 
@@ -136,9 +135,12 @@ def check_if_aws(verbose=False):
             print_system_info()
         return False
 
-def print_report(df, file_name, elapsed_time, request_size_bytes=2*1024*1024, cost_per_request=0.0004e-3, as_str=False):
+
+def print_report(df, file_name, elapsed_time, request_size_bytes=2*1024*1024, 
+                 cost_per_request=0.0004e-3, as_str=False):
     """
-    Prints or returns a report about the HDF5 file data and GET requests, including cost calculation per GET request.
+    Prints or returns a report about the HDF5 file data and GET requests, 
+    including cost calculation per GET request.
     
     Args:
         df (pd.DataFrame): DataFrame containing the extracted information.
@@ -149,47 +151,46 @@ def print_report(df, file_name, elapsed_time, request_size_bytes=2*1024*1024, co
         as_str (bool): If True, returns the report as a string; otherwise, prints the report (default: False).
         
     Returns:
-        str: The report as a string if as_str is True.
+        str: The report as a string if as_str is True, otherwise None.
     """
-    report_lines = []
-    add_line = report_lines.append  # Shortcut function to add lines to the report
+    separator = "-" * 50
+    report_lines = [
+        # f"Report for {file_name}",
+        # separator,
+        f"Processing Time: {elapsed_time:.3f} seconds",
+        f"Data Summary:",
+        f"  - Total datasets: {len(df)}",
+        f"  - Total requests: {df['requests_needed'].sum()}",
+        f"  - Request byte size: {request_size_bytes/(1024**2)} MiB",
+        f"Cost Analysis:",
+        f"  - Assumed cost per 1,000 GET requests: ${cost_per_request*1000:.10f}",
+        f"  - Total cost for file: ${df['requests_needed'].sum() * cost_per_request:.10f}",
+        separator,
+        "Top 5 datasets by number of requests:"
+    ]
+    top_datasets = df.nlargest(5, 'requests_needed')
+    for _, row in top_datasets.iterrows():
+        chunk_info = (f"Chunking: {row['chunking']} | "
+                      f"Number of Chunks: {row['num_chunks']}") if row['chunking'] else "Contiguous"
+        report_lines.append(f"  - {row['path']} - {row['requests_needed']} requests | {chunk_info}")
 
-    total_datasets = len(df)
-    total_requests = df['requests_needed'].sum()
-    total_cost = total_requests * cost_per_request  # Calculate the cost for GET requests
-    top_datasets = df.nlargest(5, 'requests_needed')  # Extracting top 5 datasets with most requests
-    
-    add_line(f"\nReport for {file_name}:")
-    add_line("-" * 50)
-    add_line(f"Total cost for file: ${total_cost:f}")
-    add_line(f"Elapsed time (s): {elapsed_time:.3f}")
-    add_line(f"Total datasets: {total_datasets}")
-    add_line(f"Total requests: {total_requests}")
-    add_line(f"Request byte size: {request_size_bytes} bytes")
-    add_line(f"Assumed cost per 1000 GET request: ${cost_per_request*1000:f}")
-    add_line("-" * 50)
-    add_line("Top 5 datasets with most requests:")
-    for index, row in top_datasets.iterrows():
-        chunk_info = f"Chunking: {row['chunking']} | Number of Chunks: {row['num_chunks']}" if row['chunking'] else "Contiguous"
-        add_line(f"{row['path']} - {row['requests_needed']} requests | {chunk_info}")
-    add_line("-" * 50)
-    
+    report_lines.append(separator)
+    report_lines.append("System Information:")
     system_info = {
         "OS": os.name,
         "Platform": platform.system(),
-        "Platform Version": platform.version(),
+        "Platform Release": platform.release(),
         "Python Version": platform.python_version(),
         "Machine": platform.machine(),
         "Processor": platform.processor(),
-        "Current Working Directory": os.getcwd(),
+        "Working Directory": os.getcwd(),
         "Host Name": platform.node(),
-        "Number of CPUs": os.cpu_count()
+        "CPU Count": os.cpu_count()
     }
-    add_line("System Info:")
     for key, value in system_info.items():
-        add_line(f"{key}: {value}")
-    add_line("-" * 50)
-    
+        report_lines.append(f"  - {key}: {value}")
+
+    report_lines.append(separator)
     report_str = "\n".join(report_lines)
     
     if as_str:
@@ -197,8 +198,28 @@ def print_report(df, file_name, elapsed_time, request_size_bytes=2*1024*1024, co
     else:
         print(report_str)
 
-
 def extract_dataset_info(data_file, path='/', request_size_bytes=2*1024 * 1024):
+    """
+    Extracts information about datasets within an H5 file.
+
+    This function traverses the groups and datasets starting from the specified path
+    within the H5 file. It collects information on datasets including the path,
+    size, chunking, and the number of requests needed to read the dataset based on 
+    a specified request size.
+
+    Parameters:
+    - data_file (h5py.File): An opened H5 file object.
+    - path (str): The starting path within the H5 file from which to begin extraction.
+    - request_size_bytes (int): The size in bytes of a single read request, used to 
+                                calculate the number of requests needed for each dataset.
+
+    Returns:
+    - List[Dict[str, Any]]: A list of dictionaries, where each dictionary contains 
+                             information about a dataset. Keys include 'top', 'name', 
+                             'path', 'type', 'chunking', 'num_chunks', 'bytes', 
+                             'attributes', and 'requests_needed'.
+
+    """
     results = []
     
     # Helper function to compute the number of chunks for a dataset.
@@ -213,8 +234,10 @@ def extract_dataset_info(data_file, path='/', request_size_bytes=2*1024 * 1024):
         current_path = f"{path}/{name}" if path != '/' else f"/{name}"
         
         if isinstance(item, h5py.Group):
+            # print('group!', current_path, item)
             results.extend(extract_dataset_info(data_file, current_path, request_size_bytes))
         elif isinstance(item, h5py.Dataset):
+            # print('dataset!', current_path, item)
             chunk_shape = item.chunks
             num_chunks = compute_num_chunks(item.shape, chunk_shape) if chunk_shape else None
             
@@ -233,68 +256,82 @@ def extract_dataset_info(data_file, path='/', request_size_bytes=2*1024 * 1024):
     
     return results
 
-def plot_dataframe(df, request_byte_size, plotting_options={}):
+def plot_dataframe(df, plotting_options={}):
     """
-    Plots h5 data as a 'barcode' showing details about dataset size and chunking.
+    Plots a barcode-style visualization indicating how many requests are needed per dataset for an H5 file.
 
-    Args:
-        df (pd.DataFrame): DataFrame containing dataset details.
-        plotting_options (dict): A dictionary of plotting options. You can specify any of the following options:
-            - 'figsize': Size of the figure for the plot specified as (width, height). Default is (8, 2).
-            - 'cmap': Colormap for coloring bars. Default is plt.cm.coolwarm.
-            - 'max_requests': Maximum number of requests for color normalization. Default is 10.
-            - 'font_size': Size of the font for annotations on the plot. Default is 10.
-            - 'byte_threshold': Minimum bytes required for a dataset to get annotated. Default is 4 MiB (4 * 1024 * 1024 bytes).
-            - 'title': Custom title for the plot. If not specified, the name of the input file will be used.
-            - 'debug': Whether to provide a detailed plot for debugging. Default is False (minimal plot).
-            - 'output_file': Path to the output image file. If not provided, it defaults to '[input_filename]_xray.png'.
+    Parameters:
+    - df (DataFrame): A pandas DataFrame with at least 'bytes' and 'requests_needed' columns.
+    - plotting_options (dict, optional): A dictionary containing options for plot customization such as:
+      - cmap: The colormap for the plot.
+      - font_size: The font size for the text labels.
+      - debug: If True, will print additional plot details and a colorbar.
+      - label_top_n: The number of top segments to label.
+      - figsize: A tuple defining the figure size.
+      - output_file: Path to save the plot image.
+      - title: The title of the plot.
+      - edge_color: The color of the edges of the bars.
+      - linewidth: The width of the edges of the bars.
 
     Returns:
-        None
+    - fig: The matplotlib figure object for the plot.
     """
-    cmap = plotting_options.get('cmap', plt.cm.coolwarm)
-    max_requests = plotting_options.get('max_requests', 15)
+
+    cmap = plotting_options.get('cmap', plt.cm.YlOrRd)
     font_size = plotting_options.get('font_size', 7)
-    byte_threshold = plotting_options.get('byte_threshold', 2*2*1024*1024)
     debug = plotting_options.get('debug', False)
 
+    if debug:
+        label_top_n = plotting_options.get('label_top_n', 10)  
+    else:
+        label_top_n = plotting_options.get('label_top_n', 0)  
+    
+    # Determine the bounds for normalization
+    requests_min = 0
+
+    # Color up to 5 requests so small files dont appear all red
+    requests_max = np.max([ 5, np.ceil(df['requests_needed'].max())])
+    
     if 'figsize' in plotting_options:
         figsize = plotting_options['figsize']
     elif debug:
         figsize = (8, 2)
     else:
         figsize = (6, 0.8)
-        
+
     output_file = plotting_options.get('output_file', None)
     title = plotting_options.get('title', None)
 
-    df['norm_requests'] = df['requests_needed'].apply(lambda x: min(x, max_requests) / max_requests)
-    df['color'] = df['norm_requests'].apply(lambda x: cmap(x))
-
-    fig, ax = plt.subplots(figsize=figsize)  # Create a figure and a set of subplots
-    stacked_value = 0 
+    fig, ax = plt.subplots(figsize=figsize)
+    stacked_value = 0
 
     edge_color = plotting_options.get('edge_color', 'black' if debug else None)
     linewidth = plotting_options.get('linewidth', 0.05 if debug else 0)
-    
+
+    top_segments_idx = df['bytes'].nlargest(label_top_n).index
+
+    norm = Normalize(vmin=requests_min, vmax=requests_max)
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+
     for index, row in df.iterrows():
-        ax.barh('Combined', row['bytes'], left=stacked_value, color=row['color'], edgecolor=edge_color, linewidth=linewidth)
-        if debug and row['bytes'] > byte_threshold:
+        color = sm.to_rgba(row['requests_needed'])
+
+        ax.barh('Combined', row['bytes'], left=stacked_value, color=color, edgecolor=edge_color, linewidth=linewidth)
+
+        if index in top_segments_idx:
             chunk_center = stacked_value + row['bytes'] / 2
             ax.text(chunk_center, 'Combined', row['name'], ha='center', va='center', color='black', fontsize=font_size, rotation=90)
+
         stacked_value += row['bytes']
 
-    # Instead of your current colorbar setup, we'll do this:
     if debug:
-        norm = Normalize(vmin=0, vmax=max_requests)
-        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-        sm.set_array([])  # This line is the key to link the mappable with the colorbar.
-        cb = plt.colorbar(sm, orientation='vertical', ax=plt.gca())
-        cb.set_label(f'{request_byte_size/1024**2:.0f} MiB Requests', rotation=270, labelpad=15)
+        cb = plt.colorbar(sm, orientation='vertical', ax=ax)
+        cb.set_label('Requests Needed', rotation=270, labelpad=15)
         ax.set_xticks([])
         ax.set_yticks([])
         ax.grid(True, axis='x', linestyle='--', linewidth=0.5, alpha=0.5)
-        ax.set_title(f"H5XRAY - {title} - Total Size: {stacked_value / (1024**2):.2f} MiB")
+        ax.set_title(f"H5XRAY - {title if title else 'Dataset'} - Total Size: {stacked_value / (1024**2):.2f} MiB")
     else:
         ax.axis('off')
 
@@ -309,73 +346,92 @@ def plot_dataframe(df, request_byte_size, plotting_options={}):
         except Exception as e:
             print(f"Error displaying plot: {e}")
 
-    return fig 
+    return fig
 
-def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, cost_per_request=0.0004e-3,
-            aws_access_key=None, aws_secret_key=None, report_type='print'):
+def open_hdf5_file_from_s3(s3_url, earthdata_uid, earthdata_pwd):
     """
-    Main function for plotting / reporting details of an HDF5 file.
+    Opens an HDF5 file from S3 using Earthdata credentials.
 
     Args:
-        input_file (str): Path to the input HDF5 file or S3 URL.
+        s3_url (str): The S3 URL of the HDF5 file.
+        earthdata_uid (str): Earthdata username.
+        earthdata_pwd (str): Earthdata password.
+
+    Returns:
+        h5py.File: The opened HDF5 file.
+    """
+    reg = ipx.Query('ATL03', [-45, 58, -35, 75], ['2019-11-30', '2019-11-30'])
+    reg.earthdata_login(earthdata_uid, earthdata_pwd, s3token=True)
+    s3 = s3fs.S3FileSystem(
+        key=reg._s3login_credentials['accessKeyId'],
+        secret=reg._s3login_credentials['secretAccessKey'],
+        token=reg._s3login_credentials['sessionToken']
+    )
+    s3f = s3.open(s3_url, 'rb')
+    return h5py.File(s3f, 'r')
+
+def open_hdf5_file_local(file_path):
+    """
+    Opens a local HDF5 file.
+
+    Args:
+        file_path (str): The file path of the HDF5 file.
+
+    Returns:
+        h5py.File: The opened HDF5 file.
+    """
+    return h5py.File(file_path, "r")
+
+def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, report=True, 
+            cost_per_request=0.0004e-3, aws_access_key=None, aws_secret_key=None, report_type='print'):
+    """
+    Main function for plotting / reporting details of an HDF5 or NetCDF file.
+
+    Args:
+        input_file (str): Path to the input HDF5 or NetCDF file or S3 URL.
         request_byte_size (int): The size of each request in bytes. Default is 2MiB (2*1024*1024 bytes).
         plotting_options (dict): A dictionary of plotting options.
-        report (bool): Whether to print a report about the HDF5 file. Default is True.
+        report (bool): Whether to print a report about the HDF5 or NetCDF file. Default is True.
         cost_per_request (float): Cost per GET request (default: $0.0004 per 1000 requests).
         aws_access_key (str, optional): AWS access key for S3 URLs.
         aws_secret_key (str, optional): AWS secret key for S3 URLs.
+        report_type (str): Format of the report output, either 'str' for string or 'print' to print directly.
 
     Returns:
-        None
+        matplotlib.figure.Figure: The figure object of the plot, if applicable.
+        str: The report string, if report is True and report_type is 'str'.
     """
 
-    # report as str or printed
-    if report_type == 'str':
-        as_str = True
-        report=True
-    elif report_type == 'print':
-        as_str = False
-        report=True
-    else:
-        report=False
-        print('unknown report type')
+    as_str = report_type == 'str'
+    report_str = None
 
     # Check if the input file is an S3 URL
     is_s3_url = input_file.startswith("s3://")
 
-    # Try to open the HDF5 file and handle potential errors
     try:
+        start_time = time.time()
+        # Context management ensures files are closed after processing
         if is_s3_url:
-            hdf5_file = open_hdf5_file_from_s3(input_file, aws_access_key, aws_secret_key)
-            if hdf5_file is None:
-                raise ValueError("Error reading the HDF5 file from S3.")
-            start_time = time.time()
-            file_info = extract_dataset_info(hdf5_file, request_size_bytes=request_byte_size)
-            end_time = time.time()
-            hdf5_file.close()  # Make sure to close the file if opened from S3
+            # S3 URL case: handle AWS or Earthdata S3 access as before
+            with open_hdf5_file_from_s3(input_file, aws_access_key, aws_secret_key) as data_file:
+                data_info = extract_dataset_info(data_file, request_size_bytes=request_byte_size)
         else:
-            with h5py.File(input_file, "r") as hdf5_file:
-                start_time = time.time()
-                file_info = extract_dataset_info(hdf5_file, request_size_bytes=request_byte_size)
-                end_time = time.time()
+            # file_extension = os.path.splitext(input_file)[1]
+            with open_hdf5_file_local(input_file) as data_file:
+                data_info = extract_dataset_info(data_file, request_size_bytes=request_byte_size)
 
-        elapsed_time = end_time - start_time
-        df = pd.DataFrame(file_info)
-    except OSError as e:
-        raise OSError(f"Error reading the HDF5 file: {e}")
+        df = pd.DataFrame(data_info)
+        elapsed_time = time.time() - start_time
+        
+        if report:
+            report_str = print_report(df, os.path.basename(input_file), elapsed_time, 
+                                      request_size_bytes=request_byte_size, 
+                                      cost_per_request=cost_per_request, as_str=as_str)
+                
+        fig = plot_dataframe(df, plotting_options)
 
-    # Update the title in the plotting options
-    if 'title' not in plotting_options:
-        file_name = os.path.splitext(os.path.basename(input_file))[0]  # Get the original filename without extension
-        plotting_options['title'] = file_name
+        return fig, report_str if as_str else None
 
-    if report:
-        report_str = print_report(df, input_file, elapsed_time, request_byte_size, cost_per_request, as_str=as_str)
-    else:
-        report_str=None
-
-    fig = plot_dataframe(df, request_byte_size, plotting_options)
-    
-    return fig, report_str
-
-
+    except Exception as e:
+        print(f"Error in analyzing the file: {e}")
+        return None, None

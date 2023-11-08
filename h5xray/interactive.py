@@ -1,12 +1,13 @@
+import os
+import textwrap
+
 import h5py
 import igraph as ig
-import os
+import numpy as np
 import plotly.graph_objects as go
 from PIL import Image, ImageDraw
-import textwrap
-import numpy as np
 from sklearn.preprocessing import MinMaxScaler
-from PIL import Image, ImageDraw
+
 
 def scale_to_range(arr, feature_range=(5, 20)):
     scaler = MinMaxScaler(feature_range=(0, 1))  # We start by scaling to the 0-1 range.
@@ -82,7 +83,7 @@ class H5Tree:
                 self.G = None
                 self.hdf5_to_igraph_tree(f[group_path])
 
-    def create_plotly_figure(self, figsize):
+    def create_plotly_figure(self, figsize, file_name=None):
         """
         Create the Plotly figure for visualization.
 
@@ -153,25 +154,34 @@ class H5Tree:
 
         node_trace = go.Scatter(
             x=y, y=x,
-            mode='markers',
+            mode='markers',  # include text mode to show labels
             text=[v['label'] for v in self.G.vs],
             hovertext=hover_texts,
             hoverinfo='text',
+            hoverlabel=dict(align='left'),
             marker=dict(
                 showscale=False,
                 color=[color_palette[v['depth'] + 1 if v['depth'] is not None else 0] for v in self.G.vs],
                 size=size_arr,
                 opacity=0.6,
                 line_width=0,
+            ),
+            textfont=dict(  
+                color='black',
+                # size=10  # adjust the size if needed
             )
         )
-
-        title_text = f'h5xray-tree: {os.path.basename(self.filepath)}'
         
         if self.group_path == '/':
-            title = f'h5xray-tree: {os.path.basename(self.filepath)}'
+            if file_name:
+                title_text = f'h5xray-tree: {os.path.basename(file_name)}'
+            else :
+                title_text = f'h5xray-tree: {os.path.basename(self.filepath)} \n{self.group_path}'
         else:
-            title = f'h5xray-tree: {os.path.basename(self.filepath)} \n{self.group_path}'
+            if file_name:
+                title_text = f'h5xray-tree: {os.path.basename(file_name)} \n{self.group_path}'
+            else :
+                title_text = f'h5xray-tree: {os.path.basename(self.filepath)} \n{self.group_path}'
 
         fig = go.Figure(data=[edge_trace, node_trace],
                      layout=go.Layout(title=title_text,
@@ -212,7 +222,7 @@ class H5Tree:
         return fig
 
 
-    def explore(self, figsize=(600, 800)):
+    def explore(self, figsize=(600, 800), file_name=None, streamlit=False):
         """
         Visualizes the tree structure of the HDF5 file using Plotly.
 
@@ -222,9 +232,13 @@ class H5Tree:
         Raises:
             ValueError: If the graph data isn't available.
         """
-        fig = self.create_plotly_figure(figsize=figsize)  # Create the Plotly figure
+        fig = self.create_plotly_figure(figsize=figsize, file_name=file_name)  # Create the Plotly figure
 
-        fig.show(config={'displayModeBar': True, 'modeBarButtonsToRemove': ['lasso2d', 'select2d'], 'displaylogo': False})
+        if not streamlit:
+            fig.show(config={'displayModeBar': True, 'modeBarButtonsToRemove': ['lasso2d', 'select2d'], 'displaylogo': False})
+
+        # else, dont use show (opens a new tab when using streamlit)
+        return fig
 
 
     def wrap_text(self, text, max_len=50, indent="    "):  # using 4 spaces as indentation by default
