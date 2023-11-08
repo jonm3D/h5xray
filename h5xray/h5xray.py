@@ -36,7 +36,6 @@ import time
 import h5py
 import icepyx as ipx
 import matplotlib.pyplot as plt
-import netCDF4 as nc
 import numpy as np
 import pandas as pd
 import requests
@@ -199,20 +198,6 @@ def print_report(df, file_name, elapsed_time, request_size_bytes=2*1024*1024,
     else:
         print(report_str)
 
-# Add the open_netcdf_file helper function
-def open_netcdf_file(file_path):
-    """
-    Opens a local NetCDF file.
-
-    Args:
-        file_path (str): The file path of the NetCDF file.
-
-    Returns:
-        netCDF4.Dataset: The opened NetCDF file.
-    """
-    return nc.Dataset(file_path, "r")
-
-
 def extract_dataset_info(data_file, path='/', request_size_bytes=2*1024 * 1024):
     """
     Extracts information about datasets within an H5 file.
@@ -249,10 +234,10 @@ def extract_dataset_info(data_file, path='/', request_size_bytes=2*1024 * 1024):
         current_path = f"{path}/{name}" if path != '/' else f"/{name}"
         
         if isinstance(item, h5py.Group):
-            print('group!', current_path, item)
+            # print('group!', current_path, item)
             results.extend(extract_dataset_info(data_file, current_path, request_size_bytes))
         elif isinstance(item, h5py.Dataset):
-            print('dataset!', current_path, item)
+            # print('dataset!', current_path, item)
             chunk_shape = item.chunks
             num_chunks = compute_num_chunks(item.shape, chunk_shape) if chunk_shape else None
             
@@ -295,7 +280,11 @@ def plot_dataframe(df, plotting_options={}):
     cmap = plotting_options.get('cmap', plt.cm.YlOrRd)
     font_size = plotting_options.get('font_size', 7)
     debug = plotting_options.get('debug', False)
-    label_top_n = plotting_options.get('label_top_n', 10)  # Number of top segments to label
+
+    if debug:
+        label_top_n = plotting_options.get('label_top_n', 10)  
+    else:
+        label_top_n = plotting_options.get('label_top_n', 0)  
     
     # Determine the bounds for normalization
     requests_min = 0
@@ -312,9 +301,6 @@ def plot_dataframe(df, plotting_options={}):
 
     output_file = plotting_options.get('output_file', None)
     title = plotting_options.get('title', None)
-
-    if debug:
-        print(df.columns)
 
     fig, ax = plt.subplots(figsize=figsize)
     stacked_value = 0
@@ -396,7 +382,7 @@ def open_hdf5_file_local(file_path):
     """
     return h5py.File(file_path, "r")
 
-def analyze(input_file, request_byte_size=2*1024*1024, plotting_options=None, report=True, 
+def analyze(input_file, request_byte_size=2*1024*1024, plotting_options={}, report=True, 
             cost_per_request=0.0004e-3, aws_access_key=None, aws_secret_key=None, report_type='print'):
     """
     Main function for plotting / reporting details of an HDF5 or NetCDF file.
@@ -424,7 +410,6 @@ def analyze(input_file, request_byte_size=2*1024*1024, plotting_options=None, re
 
     try:
         start_time = time.time()
-        print('~')
         # Context management ensures files are closed after processing
         if is_s3_url:
             # S3 URL case: handle AWS or Earthdata S3 access as before
@@ -434,16 +419,12 @@ def analyze(input_file, request_byte_size=2*1024*1024, plotting_options=None, re
             # file_extension = os.path.splitext(input_file)[1]
             with open_hdf5_file_local(input_file) as data_file:
                 data_info = extract_dataset_info(data_file, request_size_bytes=request_byte_size)
-                print(data_info)
 
-        print('~')
         df = pd.DataFrame(data_info)
-        print(df)
         elapsed_time = time.time() - start_time
         
         if report:
-            print('report df')
-            print(df.head())
+
             report_str = print_report(df, os.path.basename(input_file), elapsed_time, 
                                       request_size_bytes=request_byte_size, 
                                       cost_per_request=cost_per_request, as_str=as_str)
